@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Groundwork</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=Overpass+Mono:wght@400;600&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f1eb;--sf:#fffefa;--sf2:#eae6dd;--bd:#d4cfc4;
+  --tx:#2c2c24;--dm:#7d796e;--lf:#3a7d44;--lfbg:rgba(58,125,68,.07);
+  --lfbd:rgba(58,125,68,.22);--lf2:#2d6235;
+  --earth:#8b6914;--earthbg:rgba(139,105,20,.07);--earthbd:rgba(139,105,20,.2);
+  --sky:#3b6fa0;--skybg:rgba(59,111,160,.07);--skybd:rgba(59,111,160,.2);
+  --berry:#9b4d6a;--berrybg:rgba(155,77,106,.07);--berrybd:rgba(155,77,106,.2);
+  --rd:#b8432f;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Source Sans 3',sans-serif;background:var(--bg);color:var(--tx);min-height:100dvh;-webkit-font-smoothing:antialiased;padding-bottom:72px}
+
+/* Tabs */
+.tabs{position:fixed;bottom:0;left:0;right:0;background:var(–sf);border-top:1px solid var(–bd);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
+.tab{flex:1;text-align:center;padding:10px 0 6px;cursor:pointer;transition:all .15s;border:none;background:none;font-family:‘Source Sans 3’,sans-serif;font-size:10px;font-weight:500;color:var(–dm);letter-spacing:.5px}
+.tab .ti{font-size:20px;display:block;margin-bottom:2px}
+.tab.on{color:var(–lf);font-weight:600}
+.tab.on .ti{transform:scale(1.1)}
+
+/* Pages */
+.page{display:none;max-width:480px;margin:0 auto;padding:12px 14px 24px}
+.page.on{display:block}
+
+/* Header */
+.phdr{padding:8px 0 16px;text-align:center}
+.phdr h1{font-family:‘Fraunces’,serif;font-size:28px;font-weight:700;letter-spacing:-.5px;color:var(–lf2);line-height:1.1}
+.phdr p{font-family:‘Overpass Mono’,monospace;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(–dm);margin-top:4px}
+
+/* Cards */
+.card{background:var(–sf);border:1px solid var(–bd);border-radius:14px;padding:14px;margin-bottom:10px}
+.clbl{font-family:‘Overpass Mono’,monospace;font-size:8px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(–dm);margin-bottom:8px}
+
+/* Camera zone */
+.cam-zone{border:2px dashed var(–bd);border-radius:12px;padding:32px 14px;text-align:center;cursor:pointer;transition:all .12s;position:relative;overflow:hidden}
+.cam-zone:active{transform:scale(.98)}
+.cam-zone.has-img{border-color:var(–lfbd);border-style:solid;padding:0}
+.cam-zone .ic{font-size:32px;display:block;margin-bottom:4px}
+.cam-zone .t1{font-size:14px;font-weight:600;color:var(–tx)}
+.cam-zone .t2{font-size:10px;color:var(–dm)}
+.cam-zone img{width:100%;display:block;border-radius:10px}
+#camIn{display:none}
+
+/* Buttons */
+.btn{width:100%;padding:13px;font-family:‘Source Sans 3’,sans-serif;font-size:14px;font-weight:600;border:none;border-radius:11px;cursor:pointer;transition:all .12s;margin-bottom:8px}
+.btn:active{transform:scale(.97)}.btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
+.btn-leaf{background:var(–lf);color:#fff}
+.btn-earth{background:var(–earthbg);color:var(–earth);border:1px solid var(–earthbd)}
+.btn-sky{background:var(–skybg);color:var(–sky);border:1px solid var(–skybd)}
+.btn-berry{background:var(–berrybg);color:var(–berry);border:1px solid var(–berrybd)}
+.btn-ghost{background:none;color:var(–dm);border:1px solid var(–bd)}
+.btn.busy{opacity:.6}
+
+/* Progress */
+.prog{display:none;margin-bottom:10px;text-align:center}.prog.v{display:block}
+.trk{height:3px;background:var(–sf2);border-radius:3px;overflow:hidden;margin-bottom:5px}
+.fill{height:100%;background:var(–lf);border-radius:3px;transition:width .3s}
+.fill.ind{width:25%;animation:sl 1.1s ease-in-out infinite}
+@keyframes sl{0%{transform:translateX(-120%)}100%{transform:translateX(480%)}}
+.sttxt{font-size:10px;color:var(–dm)}
+
+/* ID results */
+.id-results{display:none;margin-bottom:10px}.id-results.v{display:block}
+.id-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(–sf);border:1px solid var(–bd);border-radius:10px;margin-bottom:6px;cursor:pointer;transition:all .12s}
+.id-item:active{transform:scale(.98)}
+.id-item .name{font-weight:600;font-size:14px}
+.id-item .conf{font-family:‘Overpass Mono’,monospace;font-size:11px;color:var(–dm)}
+.id-item.top{border-color:var(–lfbd);background:var(–lfbg)}
+.id-item.top .name{color:var(–lf2)}
+
+/* Gemini prompt */
+.gcard{display:none;background:var(–sf);border:1px solid var(–bd);border-radius:14px;overflow:hidden;margin-bottom:10px}.gcard.v{display:block}
+.gbar{padding:10px 14px;border-bottom:1px solid var(–bd);display:flex;justify-content:space-between;align-items:center}
+.gbar .gt{font-family:‘Overpass Mono’,monospace;font-size:8px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(–dm)}
+.cbtn{background:var(–sf2);border:1px solid var(–bd);border-radius:7px;padding:4px 10px;color:var(–dm);font-size:10px;cursor:pointer}
+.cbtn.ok{color:var(–lf);border-color:var(–lfbd)}
+.gpbody{padding:11px 14px;font-size:11px;line-height:1.5;color:var(–tx);white-space:pre-wrap;max-height:120px;overflow-y:auto;background:var(–sf2)}
+
+/* Form inputs */
+.finput{width:100%;padding:10px 12px;background:var(–sf2);border:1px solid var(–bd);border-radius:9px;font-family:‘Source Sans 3’,sans-serif;font-size:14px;color:var(–tx);outline:none;margin-bottom:8px;-webkit-appearance:none}
+.finput:focus{border-color:var(–lf)}
+textarea.finput{min-height:60px;resize:vertical;line-height:1.5}
+select.finput{cursor:pointer}
+
+/* Log list */
+.log-empty{text-align:center;padding:32px 16px;color:var(–dm);font-size:13px}
+.log-item{background:var(–sf);border:1px solid var(–bd);border-radius:12px;padding:12px;margin-bottom:8px;display:flex;gap:10px}
+.log-item .thumb{width:56px;height:56px;border-radius:8px;object-fit:cover;flex-shrink:0;background:var(–sf2)}
+.log-item .info{flex:1;min-width:0}
+.log-item .sp{font-family:‘Fraunces’,serif;font-weight:500;font-size:15px;color:var(–lf2)}
+.log-item .meta{font-size:11px;color:var(–dm);margin-top:2px;line-height:1.4}
+.log-item .notes{font-size:12px;color:var(–tx);margin-top:4px;line-height:1.4}
+.del-btn{background:none;border:none;color:var(–rd);font-size:12px;cursor:pointer;padding:2px;align-self:flex-start;opacity:.5}
+
+/* Seed list */
+.seed-row{display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(–sf2)}
+.seed-row:last-child{border-bottom:none}
+.seed-name{flex:1;font-weight:500;font-size:14px}
+.seed-qty{font-family:‘Overpass Mono’,monospace;font-size:13px;color:var(–dm);min-width:40px;text-align:right}
+.seed-act{display:flex;gap:4px}
+.seed-btn{width:28px;height:28px;border-radius:50%;border:1px solid var(–bd);background:var(–sf);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(–tx)}
+.seed-btn:active{transform:scale(.9)}
+
+/* Share */
+.share-stat{text-align:center;padding:16px;background:var(–lfbg);border:1px solid var(–lfbd);border-radius:12px;margin-bottom:10px}
+.share-stat .big{font-family:‘Fraunces’,serif;font-size:36px;font-weight:700;color:var(–lf2)}
+.share-stat .sub{font-size:11px;color:var(–dm);margin-top:2px}
+
+.err{display:none;padding:10px 12px;background:rgba(184,67,47,.06);border:1px solid rgba(184,67,47,.15);border-radius:10px;color:var(–rd);font-size:11px;line-height:1.4;margin-bottom:10px}.err.v{display:block}
+
+.foot{text-align:center;padding:10px 0;font-size:8px;color:var(–dm);opacity:.4;line-height:1.5}
+</style>
+
+</head>
+<body>
+
+<!-- ===== ID PAGE ===== -->
+
+<div class="page on" id="pgId">
+  <div class="phdr">
+    <h1>Groundwork</h1>
+    <p>Identify · Log · Conserve</p>
+  </div>
+
+  <div class="card">
+    <div class="clbl">📷 Snap a plant</div>
+    <div class="cam-zone" id="camZone" onclick="document.getElementById('camIn').click()">
+      <span class="ic">🌿</span>
+      <div class="t1">Tap to photograph</div>
+      <div class="t2">Camera or photo library</div>
+    </div>
+    <input type="file" id="camIn" accept="image/*" capture="environment" onchange="onPhoto(this)">
+  </div>
+
+<button class="btn btn-leaf" id="idBtn" disabled onclick="doIdentify()">Identify Plant</button>
+
+  <div class="prog" id="idProg">
+    <div class="trk"><div class="fill" id="idFill" style="width:0%"></div></div>
+    <div class="sttxt" id="idSt">Loading vision model...</div>
+  </div>
+
+  <div class="err" id="idErr"></div>
+
+  <div class="id-results" id="idResults"></div>
+
+  <div class="gcard" id="gemCard">
+    <div class="gbar">
+      <span class="gt">🔬 Detailed ID via Gemini</span>
+      <button class="cbtn" onclick="cpGem(this)">Copy</button>
+    </div>
+    <div class="gpbody" id="gemPrompt">Identify this plant. Provide:
+1. Common name and scientific name
+2. Native range
+3. Is it native or invasive in my area?
+4. Soil/light/water preferences
+5. Conservation status (if applicable)
+6. Propagation method (seed, cutting, division)
+7. Best season to plant or transplant
+8. Any look-alikes to watch for</div>
+  </div>
+
+<button class="btn btn-earth" id="logFromId" style="display:none" onclick="logFromIdentify()">📍 Log This Planting</button>
+
+  <div class="foot">
+    MobileViT via Transformers.js · On-device · No tracking
+  </div>
+</div>
+
+<!-- ===== LOG PAGE ===== -->
+
+<div class="page" id="pgLog">
+  <div class="phdr">
+    <h1>Field Log</h1>
+    <p>Your plantings & sightings</p>
+  </div>
+
+<button class="btn btn-leaf" onclick="showLogForm()">+ New Entry</button>
+
+  <div class="card" id="logForm" style="display:none">
+    <div class="clbl">New log entry</div>
+    <input class="finput" id="logSpecies" placeholder="Species name">
+    <select class="finput" id="logType">
+      <option value="planted">🌱 Planted</option>
+      <option value="sighted">👁️ Sighted / Wild</option>
+      <option value="seeds">🫘 Seeds collected</option>
+      <option value="removed">🚫 Invasive removed</option>
+    </select>
+    <textarea class="finput" id="logNotes" placeholder="Notes — soil, sun, condition, quantity..."></textarea>
+    <button class="btn btn-leaf" onclick="saveLog()">📍 Save with GPS</button>
+    <button class="btn btn-ghost" onclick="hideLogForm()">Cancel</button>
+  </div>
+
+  <div id="logList"></div>
+</div>
+
+<!-- ===== SEEDS PAGE ===== -->
+
+<div class="page" id="pgSeed">
+  <div class="phdr">
+    <h1>Seed Library</h1>
+    <p>Track your collection</p>
+  </div>
+
+  <div class="card">
+    <div class="clbl">Add seed stock</div>
+    <input class="finput" id="seedName" placeholder="Species name">
+    <div style="display:flex;gap:8px">
+      <input class="finput" id="seedQty" type="number" placeholder="Qty" style="width:80px">
+      <select class="finput" id="seedUnit">
+        <option value="packets">packets</option>
+        <option value="seeds">seeds</option>
+        <option value="grams">grams</option>
+        <option value="cuttings">cuttings</option>
+      </select>
+      <button class="btn btn-leaf" style="width:auto;padding:10px 18px;margin:0;flex-shrink:0" onclick="addSeed()">Add</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">Inventory</div>
+    <div id="seedList"><div class="log-empty">No seeds tracked yet</div></div>
+  </div>
+</div>
+
+<!-- ===== SHARE PAGE ===== -->
+
+<div class="page" id="pgShare">
+  <div class="phdr">
+    <h1>Community</h1>
+    <p>Opt-in data sharing</p>
+  </div>
+
+  <div class="share-stat">
+    <div class="big" id="shareCount">0</div>
+    <div class="sub">log entries on this device</div>
+  </div>
+
+  <div class="card">
+    <div class="clbl">📬 Export to collective</div>
+    <p style="font-size:12px;color:var(--dm);line-height:1.5;margin-bottom:10px">
+      Share your field log with the conservation network. Your GPS pins help map rewilding efforts and native plant populations.
+    </p>
+    <button class="btn btn-berry" onclick="exportEmail()">Email Field Log</button>
+    <button class="btn btn-sky" onclick="exportCSV()">Download CSV</button>
+    <button class="btn btn-ghost" onclick="exportJSON()">Export JSON (backup)</button>
+  </div>
+
+  <div class="card">
+    <p style="font-size:11px;color:var(--dm);line-height:1.5">
+      All data stays on your phone until you choose to share. No server, no account, no tracking. Your field log is yours.
+    </p>
+  </div>
+</div>
+
+<!-- ===== TAB BAR ===== -->
+
+<div class="tabs">
+  <button class="tab on" onclick="goTab('pgId',this)"><span class="ti">🌿</span>ID</button>
+  <button class="tab" onclick="goTab('pgLog',this)"><span class="ti">📍</span>Log</button>
+  <button class="tab" onclick="goTab('pgSeed',this)"><span class="ti">🫘</span>Seeds</button>
+  <button class="tab" onclick="goTab('pgShare',this)"><span class="ti">📬</span>Share</button>
+</div>
+
+<script>
+// ===== Storage abstraction =====
+let DB = { logs: [], seeds: [] };
+function loadDB(){
+  try{ const d=localStorage.getItem('groundwork'); if(d) DB=JSON.parse(d); } catch(e){}
+}
+function saveDB(){
+  try{ localStorage.setItem('groundwork',JSON.stringify(DB)); } catch(e){}
+}
+loadDB();
+
+// ===== Tabs =====
+function goTab(id, btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+  btn.classList.add('on');
+  if(id==='pgLog') renderLog();
+  if(id==='pgSeed') renderSeeds();
+  if(id==='pgShare') document.getElementById('shareCount').textContent=DB.logs.length;
+}
+
+// ===== Photo handling =====
+let photoData = null;
+let photoThumb = null;
+let lastIdLabel = '';
+
+function onPhoto(inp){
+  const f=inp.files[0]; if(!f) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    photoData = e.target.result;
+    // Create thumbnail
+    const img = new Image();
+    img.onload = function(){
+      const canvas = document.createElement('canvas');
+      const sz = 224;
+      canvas.width=sz; canvas.height=sz;
+      const ctx=canvas.getContext('2d');
+      const scale = Math.max(sz/img.width, sz/img.height);
+      const w=img.width*scale, h=img.height*scale;
+      ctx.drawImage(img,(sz-w)/2,(sz-h)/2,w,h);
+      photoThumb = canvas.toDataURL('image/jpeg',0.7);
+
+      const zone = document.getElementById('camZone');
+      zone.classList.add('has-img');
+      zone.innerHTML = '<img src="'+photoData+'" alt="plant">';
+      document.getElementById('idBtn').disabled=false;
+      hide('idResults','gemCard');
+      document.getElementById('logFromId').style.display='none';
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(f);
+}
+
+// ===== Plant ID =====
+async function doIdentify(){
+  if(!photoData) return;
+  if(!window._vision){
+    sErr('idErr','⚠️ Vision model not loaded. <b>Open in Safari</b> to use on-device ID, or use Gemini prompt below.');
+    show('gemCard');
+    return;
+  }
+  const btn=document.getElementById('idBtn');
+  btn.disabled=true; btn.textContent='Identifying...'; btn.classList.add('busy');
+  show('idProg'); hErr('idErr'); hide('idResults');
+
+  try{
+    document.getElementById('idFill').classList.add('ind');
+    document.getElementById('idSt').textContent='Running vision model...';
+
+    const result = await window._vision(photoData, { topk: 5 });
+    const container = document.getElementById('idResults');
+    container.innerHTML = '';
+
+    result.forEach((r,i) => {
+      const item = document.createElement('div');
+      item.className = 'id-item' + (i===0?' top':'');
+      const pct = (r.score*100).toFixed(1);
+      const label = r.label.split(',')[0].trim();
+      if(i===0) lastIdLabel = label;
+      item.innerHTML = `<span class="name">${label}</span><span class="conf">${pct}%</span>`;
+      item.onclick = () => { document.getElementById('logSpecies').value = label; goTab('pgLog',document.querySelectorAll('.tab')[1]); showLogForm(); };
+      container.appendChild(item);
+    });
+
+    show('idResults','gemCard');
+    document.getElementById('logFromId').style.display='';
+
+  } catch(e){
+    sErr('idErr', e.message||'ID failed.');
+  } finally {
+    btn.disabled=false; btn.textContent='Identify Plant'; btn.classList.remove('busy');
+    hide('idProg');
+  }
+}
+
+function logFromIdentify(){
+  document.getElementById('logSpecies').value = lastIdLabel;
+  goTab('pgLog', document.querySelectorAll('.tab')[1]);
+  showLogForm();
+}
+
+// ===== Gemini =====
+function cpGem(btn){
+  navigator.clipboard.writeText(document.getElementById('gemPrompt').textContent).then(()=>{
+    btn.textContent='Copied ✓'; btn.classList.add('ok');
+    setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('ok')},2000);
+  });
+}
+
+// ===== Field Log =====
+function showLogForm(){ document.getElementById('logForm').style.display=''; }
+function hideLogForm(){ document.getElementById('logForm').style.display='none'; }
+
+function saveLog(){
+  const species = document.getElementById('logSpecies').value.trim();
+  if(!species){ sErr('idErr','Enter a species name.'); return; }
+
+  const entry = {
+    id: Date.now(),
+    species: species,
+    type: document.getElementById('logType').value,
+    notes: document.getElementById('logNotes').value.trim(),
+    date: new Date().toISOString(),
+    lat: null, lng: null,
+    thumb: photoThumb || null
+  };
+
+  // Get GPS
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        entry.lat = pos.coords.latitude.toFixed(6);
+        entry.lng = pos.coords.longitude.toFixed(6);
+        DB.logs.unshift(entry);
+        saveDB(); renderLog(); hideLogForm();
+        document.getElementById('logSpecies').value='';
+        document.getElementById('logNotes').value='';
+      },
+      () => {
+        DB.logs.unshift(entry);
+        saveDB(); renderLog(); hideLogForm();
+      },
+      {enableHighAccuracy:true, timeout:8000}
+    );
+  } else {
+    DB.logs.unshift(entry);
+    saveDB(); renderLog(); hideLogForm();
+  }
+}
+
+function renderLog(){
+  const el = document.getElementById('logList');
+  if(!DB.logs.length){ el.innerHTML='<div class="log-empty">No entries yet. Go identify a plant!</div>'; return; }
+  el.innerHTML = DB.logs.map(l => {
+    const typeEmoji = {planted:'🌱',sighted:'👁️',seeds:'🫘',removed:'🚫'}[l.type]||'📍';
+    const d = new Date(l.date);
+    const dateStr = d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const gps = l.lat ? `${l.lat}, ${l.lng}` : 'No GPS';
+    const thumb = l.thumb ? `<img class="thumb" src="${l.thumb}">` : '<div class="thumb"></div>';
+    return `<div class="log-item">
+      ${thumb}
+      <div class="info">
+        <div class="sp">${typeEmoji} ${esc(l.species)}</div>
+        <div class="meta">${dateStr} · ${gps}</div>
+        ${l.notes ? '<div class="notes">'+esc(l.notes)+'</div>' : ''}
+      </div>
+      <button class="del-btn" onclick="delLog(${l.id})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function delLog(id){
+  DB.logs = DB.logs.filter(l=>l.id!==id);
+  saveDB(); renderLog();
+}
+
+// ===== Seed Library =====
+function addSeed(){
+  const name = document.getElementById('seedName').value.trim();
+  const qty = parseInt(document.getElementById('seedQty').value)||0;
+  const unit = document.getElementById('seedUnit').value;
+  if(!name) return;
+
+  const existing = DB.seeds.find(s=>s.name.toLowerCase()===name.toLowerCase());
+  if(existing){ existing.qty += qty; }
+  else { DB.seeds.push({id:Date.now(), name, qty, unit}); }
+
+  saveDB(); renderSeeds();
+  document.getElementById('seedName').value='';
+  document.getElementById('seedQty').value='';
+}
+
+function renderSeeds(){
+  const el = document.getElementById('seedList');
+  if(!DB.seeds.length){ el.innerHTML='<div class="log-empty">No seeds tracked yet</div>'; return; }
+  el.innerHTML = DB.seeds.map(s => `
+    <div class="seed-row">
+      <span class="seed-name">🌱 ${esc(s.name)}</span>
+      <span class="seed-qty">${s.qty} ${s.unit}</span>
+      <div class="seed-act">
+        <button class="seed-btn" onclick="adjSeed(${s.id},-1)">−</button>
+        <button class="seed-btn" onclick="adjSeed(${s.id},1)">+</button>
+        <button class="seed-btn" onclick="delSeed(${s.id})" style="color:var(--rd);font-size:11px">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function adjSeed(id,d){
+  const s=DB.seeds.find(x=>x.id===id);
+  if(s){s.qty=Math.max(0,s.qty+d); saveDB(); renderSeeds();}
+}
+function delSeed(id){
+  DB.seeds=DB.seeds.filter(x=>x.id!==id); saveDB(); renderSeeds();
+}
+
+// ===== Share/Export =====
+function exportEmail(){
+  const subj = encodeURIComponent('Groundwork Field Log — ' + new Date().toLocaleDateString());
+  const body = encodeURIComponent(formatLogText());
+  window.location.href = `mailto:?subject=${subj}&body=${body}`;
+}
+
+function exportCSV(){
+  let csv = 'Date,Species,Type,Lat,Lng,Notes\n';
+  DB.logs.forEach(l => {
+    csv += `"${l.date}","${l.species}","${l.type}","${l.lat||''}","${l.lng||''}","${(l.notes||'').replace(/"/g,'""')}"\n`;
+  });
+  downloadFile('groundwork-log.csv', csv, 'text/csv');
+}
+
+function exportJSON(){
+  downloadFile('groundwork-backup.json', JSON.stringify(DB,null,2), 'application/json');
+}
+
+function formatLogText(){
+  let txt = 'GROUNDWORK FIELD LOG\nExported: '+new Date().toLocaleString()+'\n\n';
+  DB.logs.forEach(l=>{
+    txt += `${l.species} (${l.type})\n`;
+    txt += `Date: ${new Date(l.date).toLocaleString()}\n`;
+    if(l.lat) txt += `GPS: ${l.lat}, ${l.lng}\n`;
+    if(l.notes) txt += `Notes: ${l.notes}\n`;
+    txt += '\n';
+  });
+  if(DB.seeds.length){
+    txt += 'SEED INVENTORY\n';
+    DB.seeds.forEach(s=>{ txt += `${s.name}: ${s.qty} ${s.unit}\n`; });
+  }
+  return txt;
+}
+
+function downloadFile(name, content, type){
+  const blob = new Blob([content],{type});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+}
+
+// ===== Utils =====
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function show(...ids){ids.forEach(id=>{const el=document.getElementById(id);if(el){el.classList.add('v');el.style.removeProperty('display')}});}
+function hide(...ids){ids.forEach(id=>{const el=document.getElementById(id);if(el)el.classList.remove('v')});}
+function sErr(id,m){const e=document.getElementById(id);e.innerHTML=m;e.classList.add('v');}
+function hErr(id){document.getElementById(id).classList.remove('v');}
+
+// Init
+renderLog(); renderSeeds();
+</script>
+
+<!-- Vision model (isolated import) -->
+
+<script type="module">
+try{
+  const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3');
+  env.allowLocalModels = false;
+  window._vision = await pipeline('image-classification','onnx-community/mobilevitv2-1.0-imagenet1k-256',{
+    dtype:'q8',
+    progress_callback: p => {
+      const prog=document.getElementById('idProg');
+      const fill=document.getElementById('idFill');
+      const st=document.getElementById('idSt');
+      if(p.status==='progress'&&p.progress){
+        prog.classList.add('v');
+        fill.style.width=Math.round(p.progress)+'%';
+        fill.classList.remove('ind');
+        st.textContent='Downloading vision model... '+Math.round(p.progress)+'%';
+      }
+      if(p.status==='ready'){
+        prog.classList.remove('v');
+      }
+    }
+  });
+}catch(e){
+  // Model will load on first identify attempt in Safari
+  // In sandbox/preview, Gemini prompt is the fallback
+}
+</script>
+
+</body>
+</html>

@@ -17,10 +17,12 @@ const SECTOR_COORDS = {
 };
 const RESOURCE_ICONS = {
   water: '💧',
+  restroom: '🚻',
   outlet: '🔌',
   shade: '🌳',
   tree: '🍎',
   garden: '🪴',
+  fishing: '🎣',
 };
 
 const state = loadState();
@@ -30,7 +32,7 @@ let pendingLocation = null;
 let pendingMarker = null;
 let currentThread = null;
 
-const routes = ['map', 'jobs', 'planner', 'secure', 'inbox', 'relays', 'about'];
+const routes = ['map', 'jobs', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
 const tabEls = Array.from(document.querySelectorAll('.tab'));
 const viewEls = routes.reduce((acc, route) => {
   acc[route] = document.getElementById(`view-${route}`);
@@ -63,6 +65,8 @@ const resourcePreview = document.getElementById('resourcePreview');
 const jobPreview = document.getElementById('jobPreview');
 const resourceFilter = document.getElementById('resourceFilter');
 const sectorFilter = document.getElementById('sectorFilter');
+const scopeFilter = document.getElementById('scopeFilter');
+const resourceScopeSelect = document.getElementById('resourceScopeSelect');
 const seedDemoButton = document.getElementById('seedDemoButton');
 const focusUserButton = document.getElementById('focusUserButton');
 const pickMapLocationButton = document.getElementById('pickMapLocationButton');
@@ -71,6 +75,9 @@ const clearLocationButton = document.getElementById('clearLocationButton');
 const regenIdentityButton = document.getElementById('regenIdentityButton');
 const copyTrustPhraseButton = document.getElementById('copyTrustPhraseButton');
 const exportButton = document.getElementById('exportButton');
+const createGroupForm = document.getElementById('createGroupForm');
+const joinGroupForm = document.getElementById('joinGroupForm');
+const groupList = document.getElementById('groupList');
 
 wireRouting();
 wireForms();
@@ -96,6 +103,7 @@ function normalizeState(parsed) {
     version: 2,
     identity: parsed.identity || createIdentity(),
     contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
+    groups: Array.isArray(parsed.groups) ? parsed.groups : [],
     relays: Array.isArray(parsed.relays) && parsed.relays.length ? parsed.relays : DEFAULT_RELAYS.slice(),
     events: Array.isArray(parsed.events) ? parsed.events : [],
   };
@@ -127,6 +135,8 @@ function wireForms() {
   contactForm.addEventListener('submit', handleContactSubmit);
   messageForm.addEventListener('submit', handleMessageSubmit);
   relayForm.addEventListener('submit', handleRelaySubmit);
+  createGroupForm.addEventListener('submit', handleCreateGroup);
+  joinGroupForm.addEventListener('submit', handleJoinGroup);
   importInput.addEventListener('change', handleImport);
   resourceFilter.addEventListener('change', () => {
     renderResources();
@@ -135,6 +145,31 @@ function wireForms() {
   sectorFilter.addEventListener('change', () => {
     renderResources();
     renderMap();
+  });
+  scopeFilter.addEventListener('change', () => {
+    renderResources();
+    renderMap();
+  });
+
+  groupList.addEventListener('click', event => {
+    const copyBtn = event.target.closest('[data-copy-group]');
+    if (copyBtn) {
+      navigator.clipboard.writeText(copyBtn.dataset.copyGroup).then(
+        () => toastMessage('Group ID copied.'),
+        () => toastMessage('Clipboard unavailable.')
+      );
+      return;
+    }
+    const leaveBtn = event.target.closest('[data-leave-group]');
+    if (leaveBtn) {
+      state.groups = state.groups.filter(g => g.id !== leaveBtn.dataset.leaveGroup);
+      persist();
+      renderGroups();
+      populateScopeDropdowns();
+      renderResources();
+      renderMap();
+      toastMessage('Left group.');
+    }
   });
 
   regenIdentityButton.addEventListener('click', () => {
@@ -331,6 +366,7 @@ function deriveMessages() {
 }
 
 function render() {
+  populateScopeDropdowns();
   renderResources();
   renderMap();
   renderJobs();
@@ -339,6 +375,7 @@ function render() {
   renderContacts();
   renderThreads();
   renderRelays();
+  renderGroups();
   renderEventShape();
 }
 
@@ -346,21 +383,40 @@ function getFilteredResources() {
   const allResources = deriveResources();
   const typeValue = resourceFilter.value;
   const sectorValue = sectorFilter.value;
+  const scopeValue = scopeFilter.value;
+
   return allResources.filter(item => {
+    // Determine the scope of this item: if it has a groupId, it's group-scoped. Otherwise public.
+    const itemScope = item.groupId ? item.groupId : 'public';
+    
+    // 1. Check scope match
+    let scopeOk = false;
+    if (scopeValue === 'public') {
+      scopeOk = (itemScope === 'public');
+    } else {
+      // It's a specific group. We only show pins for that specific group.
+      scopeOk = (itemScope === scopeValue);
+    }
+
+    // 2. Check type match
     const typeOk = typeValue === 'all' || item.resource === typeValue;
+    
+    // 3. Check sector match
     const sectorOk = sectorValue === 'all' || item.sector === sectorValue;
-    return typeOk && sectorOk;
+
+    return scopeOk && typeOk && sectorOk;
   });
 }
 
 function renderResources() {
   const allResources = deriveResources();
   const resources = getFilteredResources();
-  const totals = countBy(allResources, item => item.resource);
+  const totals = countBy(resources, item => item.resource);
   resourceSummary.innerHTML = [
-    `<span class="stat"><strong>${allResources.length}</strong> pins</span>`,
+    `<span class="stat"><strong>${resources.length}</strong> pins in view</span>`,
     `<span class="stat"><strong>${totals.water || 0}</strong> water</span>`,
-    `<span class="stat"><strong>${totals.outlet || 0}</strong> outlets</span>`,
+    `<span class="stat"><strong>${totals.restroom || 0}</strong> restrooms</span>`,
+    `<span class="stat"><strong>${totals.fishing || 0}</strong> fishing</span>`,
     `<span class="stat"><strong>${totals.shade || 0}</strong> shade</span>`,
   ].join('');
 
@@ -573,6 +629,9 @@ async function handleResourceSubmit(event) {
   const lng = Number(fd.get('lng'));
   const coords = Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : SECTOR_COORDS[sector] || [35.4676, -97.5164];
 
+  const scopeValue = fd.get('scope') || 'public';
+  const groupId = scopeValue === 'public' ? null : scopeValue;
+
   appendEvent('resource.pin.add', {
     resource: fd.get('resource'),
     sector,
@@ -582,6 +641,7 @@ async function handleResourceSubmit(event) {
     lng: coords[1],
     photo: resourcePreview.dataset.photo || '',
     alias: state.identity.alias,
+    groupId: groupId,
   });
 
   form.reset();
@@ -592,6 +652,78 @@ async function handleResourceSubmit(event) {
   renderResources();
   renderMap();
   toastMessage('Pin posted locally.');
+}
+
+function handleCreateGroup(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const fd = new FormData(form);
+  const groupName = String(fd.get('groupName') || '').trim();
+  if (!groupName) return;
+
+  const groupId = crypto.randomUUID();
+  state.groups.push({ id: groupId, name: groupName });
+  persist();
+  form.reset();
+  renderGroups();
+  populateScopeDropdowns();
+  toastMessage('Group created locally.');
+}
+
+function handleJoinGroup(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const fd = new FormData(form);
+  const groupId = String(fd.get('groupId') || '').trim();
+  if (!groupId) return;
+
+  if (state.groups.find(g => g.id === groupId)) {
+    toastMessage('Already in this group.');
+    return;
+  }
+  
+  // Provide a default name since we just have the ID. 
+  // In a real app with sync, you'd fetch the name.
+  state.groups.push({ id: groupId, name: `Joined Group (${groupId.slice(0, 4)})` });
+  persist();
+  form.reset();
+  renderGroups();
+  populateScopeDropdowns();
+  renderResources();
+  renderMap();
+  toastMessage('Group joined locally.');
+}
+
+function renderGroups() {
+  if (!state.groups.length) {
+    groupList.innerHTML = '<div class="empty">You haven\\'t joined any groups yet.</div>';
+    return;
+  }
+
+  groupList.innerHTML = state.groups.map(group => `
+    <article class="card">
+      <div class="card-head">
+        <div>
+          <h3 class="card-title">${escapeHtml(group.name)}</h3>
+          <p class="card-subtitle">ID: ${escapeHtml(group.id)}</p>
+        </div>
+        <div class="inline-actions wrap">
+          <button class="button small" type="button" data-copy-group="${escapeAttribute(group.id)}">Copy ID</button>
+          <button class="button small" type="button" data-leave-group="${escapeAttribute(group.id)}">Leave</button>
+        </div>
+      </div>
+    </article>
+  `).join('');
+}
+
+function populateScopeDropdowns() {
+  const publicOption = '<option value="public">Public map</option>';
+  const groupOptions = state.groups.map(g => `<option value="${escapeAttribute(g.id)}">Group: ${escapeHtml(g.name)}</option>`).join('');
+  const allOptions = publicOption + groupOptions;
+  
+  // Only update if options changed (simple check based on length, though innerHTML assignment is cheap)
+  resourceScopeSelect.innerHTML = allOptions;
+  scopeFilter.innerHTML = allOptions;
 }
 
 async function handleJobSubmit(event) {
@@ -858,33 +990,40 @@ function renderPlanCard(item) {
 
 function seedDemoData() {
   if (state.events.length) {
-    toastMessage('Demo data skipped because your log already has entries.');
+    toastMessage('Skipped: your log already has entries. Clear local storage first.');
     return;
   }
-  appendEvent('resource.pin.add', {
-    resource: 'water', sector: 'Innovation District', access: 'public', note: 'Bottle filler inside lobby by the west doors.', lat: 35.4829, lng: -97.5039, photo: '', alias: 'CedarWren',
+  
+  const libraries = [
+    { name: 'Southwest Oklahoma City Public Library', lat: 35.3347, lng: -97.5498, sector: 'Southside' },
+    { name: 'Robert M. Bird Library', lat: 35.4795, lng: -97.4942, sector: 'Innovation District' },
+    { name: 'Belle Isle Library', lat: 35.5256, lng: -97.5570, sector: 'Plaza' },
+    { name: 'Keith Leftwich Memorial Library', lat: 35.3889, lng: -97.5691, sector: 'Southside' },
+    { name: 'Ronald J. Norick Downtown Library', lat: 35.4685, lng: -97.5186, sector: 'Downtown' },
+    { name: 'Patience S. Latting Northwest Library', lat: 35.5940, lng: -97.6180, sector: 'Paseo' },
+    { name: 'Almonte Metropolitan Library', lat: 35.4040, lng: -97.5664, sector: 'Southside' }
+  ];
+
+  libraries.forEach(lib => {
+    appendEvent('resource.pin.add', {
+      resource: 'water', 
+      sector: lib.sector, 
+      access: 'public', 
+      note: `Waterfountain and restroom - ${lib.name}`, 
+      lat: lib.lat, 
+      lng: lib.lng, 
+      photo: '', 
+      alias: state.identity.alias,
+      groupId: null
+    });
   });
-  appendEvent('resource.pin.add', {
-    resource: 'outlet', sector: 'Paseo', access: 'permissioned', note: 'Volunteer outlet on market days. Ask at front desk.', lat: 35.5224, lng: -97.5261, photo: '', alias: 'MapleHeron',
-  });
-  appendEvent('resource.pin.add', {
-    resource: 'tree', sector: 'NE 23rd', access: 'public', note: 'Young shade trees need watering during hot weeks.', lat: 35.4932, lng: -97.4701, photo: '', alias: 'OakLark',
-  });
+
   appendEvent('job.posted', {
-    service: 'watering', sector: 'Midtown', sentence: 'Need two tree wells watered before Friday.', price: 25, photo: '', alias: 'WillowBee',
+    service: 'watering', sector: 'Downtown', sentence: 'Need two tree wells watered near the main library.', price: 25, photo: '', alias: state.identity.alias,
   });
-  appendEvent('job.posted', {
-    service: 'garden cleanup', sector: 'Plaza', sentence: 'Need weeds cleared around native bed by alley fence.', price: 60, photo: '', alias: 'BirchFox',
-  });
-  appendEvent('planner.requested', {
-    projectType: 'fruit tree guild', species: 'peach', sun: 'full sun', waterAccess: 'limited', soil: 'clay', month: 'March', goal: 'fruit later, summer shade, pollinator support', request: 'Need a low-water starter plan for one peach tree and companions.', alias: 'JuniperMoth',
-    ...generatePlan({ projectType: 'fruit tree guild', species: 'peach', sun: 'full sun', waterAccess: 'limited', soil: 'clay', month: 'March', goal: 'fruit later, summer shade, pollinator support', request: 'Need a low-water starter plan for one peach tree and companions.' }),
-  });
-  appendEvent('dm.sent', {
-    toAlias: 'CedarWren', body: 'I can verify that water station tomorrow morning.', topic: 'resource follow-up', alias: state.identity.alias, status: 'relay-ready',
-  });
+
   render();
-  toastMessage('Demo data loaded.');
+  toastMessage('OKC libraries loaded.');
 }
 
 function buildQrCells(seed) {

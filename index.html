@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Groundwork OKC</title>
-  <meta name="description" content="A local-first community utility layer for water, outlets, shade, stewardship, planting plans, and simple neighborhood jobs in Oklahoma City.">
+  <meta name="description" content="A local-first app for people, places, and recreation in Oklahoma City. Map water, restrooms, outlets, shade, gardens, fishing spots, and more.">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="assets/styles.css">
 </head>
@@ -12,13 +12,13 @@
   <header class="topbar">
     <div>
       <p class="eyebrow">GROUNDWORK OKC</p>
-      <h1>A community-updated map of water, power, shade, stewardship, and planting plans.</h1>
-      <p class="lede">Groundwork OKC is local-first. Pins, jobs, plans, and inbox messages live in an append-only event log in your browser first. Use it today on Cloudflare Pages, then add community relays later.</p>
+      <h1>People, places, and recreation.</h1>
+      <p class="lede">A local-first community map for water, restrooms, outlets, shade, gardens, fishing spots, and neighborhood jobs. Public pins live on the open map. Group submaps keep fishing crews, planting teams, and cleanup routes scoped to the people who need them.</p>
     </div>
     <div class="hero-actions">
       <a class="button primary" href="#map">Open live map</a>
       <a class="button" href="#planner">Open planner</a>
-      <a class="button" href="#inbox">Open inbox</a>
+      <a class="button" href="#groups">Groups</a>
     </div>
   </header>
 
@@ -26,6 +26,7 @@
     <a href="#map" data-route="map" class="tab is-active">Map</a>
     <a href="#jobs" data-route="jobs" class="tab">Jobs</a>
     <a href="#planner" data-route="planner" class="tab">Planner</a>
+    <a href="#groups" data-route="groups" class="tab">Groups</a>
     <a href="#secure" data-route="secure" class="tab">Secure</a>
     <a href="#inbox" data-route="inbox" class="tab">Inbox</a>
     <a href="#relays" data-route="relays" class="tab">Relays</a>
@@ -42,19 +43,24 @@
               <h2>Live map pins</h2>
             </div>
             <div class="inline-actions">
-              <button class="button small" id="seedDemoButton" type="button">Load demo data</button>
+              <button class="button small" id="seedDemoButton" type="button">Load OKC libraries</button>
               <button class="button small" id="focusUserButton" type="button">Use my location</button>
             </div>
           </div>
 
           <div class="map-toolbar">
+            <select id="scopeFilter">
+              <option value="public">Public map</option>
+            </select>
             <select id="resourceFilter">
               <option value="all">All resource types</option>
               <option value="water">Water</option>
+              <option value="restroom">Restroom</option>
               <option value="outlet">Outlet</option>
               <option value="shade">Shade</option>
               <option value="tree">Fruit / tree</option>
               <option value="garden">Garden / stewardship</option>
+              <option value="fishing">Fishing spot</option>
             </select>
             <select id="sectorFilter">
               <option value="all">All sectors</option>
@@ -79,7 +85,7 @@
           <div class="panel-head">
             <div>
               <p class="eyebrow">SUBMIT A RESOURCE</p>
-              <h2>Share a public or permissioned pin</h2>
+              <h2>Share a public or group pin</h2>
             </div>
           </div>
           <form id="resourceForm" class="stack" novalidate>
@@ -87,10 +93,18 @@
               Resource type
               <select name="resource" required>
                 <option value="water">Water</option>
+                <option value="restroom">Restroom</option>
                 <option value="outlet">Outlet</option>
                 <option value="shade">Shade</option>
                 <option value="tree">Fruit / tree</option>
                 <option value="garden">Garden / stewardship</option>
+                <option value="fishing">Fishing spot</option>
+              </select>
+            </label>
+            <label>
+              Map scope
+              <select name="scope" id="resourceScopeSelect" required>
+                <option value="public">Public map</option>
               </select>
             </label>
             <label>
@@ -138,7 +152,7 @@
             </label>
             <div id="resourcePreview" class="preview hidden"></div>
             <button class="button primary" type="submit">Post pin</button>
-            <p class="help">This creates a signed local event now. Multi-user relay sync can be wired in later.</p>
+            <p class="help">Public pins go on the open map. Group-scoped pins stay private on the relay and only appear for group members.</p>
           </form>
         </aside>
       </div>
@@ -295,6 +309,51 @@
       </div>
     </section>
 
+    <section id="view-groups" class="view">
+      <div class="panel-grid two-up">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">GROUP SUBMAPS</p>
+              <h2>Create or join a group</h2>
+            </div>
+          </div>
+          <div class="stack">
+            <form id="createGroupForm" class="stack" novalidate>
+              <label>
+                Group name
+                <input type="text" name="groupName" maxlength="48" placeholder="Fishing crew, Planting team, Cleanup route" required>
+              </label>
+              <button class="button primary" type="submit">Create group</button>
+            </form>
+
+            <div class="callout">
+              <strong>How groups work</strong>
+              <p>Create a group to get a shareable group ID. Anyone with the ID can join and see group-scoped pins. Group pins are private on the relay — they never appear on the public map.</p>
+            </div>
+
+            <form id="joinGroupForm" class="stack" novalidate>
+              <label>
+                Group ID
+                <input type="text" name="groupId" maxlength="36" placeholder="Paste a group ID to join" required>
+              </label>
+              <button class="button" type="submit">Join group</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">YOUR GROUPS</p>
+              <h2>Joined submaps</h2>
+            </div>
+          </div>
+          <div id="groupList" class="card-list" aria-live="polite"></div>
+        </section>
+      </div>
+    </section>
+
     <section id="view-secure" class="view">
       <div class="panel-grid two-up">
         <section class="panel">
@@ -392,7 +451,7 @@
           <form id="relayForm" class="stack" novalidate>
             <label>
               Relay URL
-              <input type="url" name="url" placeholder="wss://relay.groundworkokc.org" required>
+              <input type="url" name="url" placeholder="http://3.148.240.58" required>
             </label>
             <button class="button primary" type="submit">Add relay</button>
           </form>
@@ -413,7 +472,7 @@
           </div>
           <div class="callout">
             <strong>Current shape:</strong>
-            <p>Cloudflare Pages serves the shell. The browser keeps the working log. Relays can later forward signed events and inbox messages without becoming your source of truth.</p>
+            <p>Cloudflare Pages serves the shell. The browser keeps the working log. Relays forward signed events and inbox messages. Group pins stay private on the relay.</p>
           </div>
           <pre id="eventShape" class="code-block"></pre>
         </section>
@@ -430,27 +489,29 @@
             </div>
           </div>
           <div class="stack prose">
-            <p>Groundwork OKC is a civic utility layer for public water, outlets, shade, gardens, and small stewardship jobs around Oklahoma City.</p>
-            <p>This version adds a real slippy map, a relay-ready local inbox, a stronger resource submission flow, and a germination / planting planner guided by permaculture principles like observe and interact, small and slow solutions, and stacking functions.</p>
-            <p>Keep the map public for clearly public or permissioned resources. Keep sensitive coordination in the inbox. Keep the real log on devices.</p>
+            <p>Groundwork is a local-first app for people, places, and recreation in Oklahoma City.</p>
+            <p>The public map tracks water fountains, restrooms, outlets, shade, gardens, and fishing spots. Group submaps let fishing crews, planting teams, cleanup routes, and trusted networks share pins without exposing them to the open map.</p>
+            <p>Jobs post simple neighborhood tasks. The planner generates permaculture-minded planting guides. The inbox queues relay-ready private messages. Everything starts in your browser and syncs through community relays when you are ready.</p>
           </div>
         </section>
 
         <section class="panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">DEPLOY</p>
+              <p class="eyebrow">FEATURE FREEZE</p>
               <h2>What ships in this build</h2>
             </div>
           </div>
           <ul class="checklist">
-            <li>Real OpenStreetMap-backed pins via Leaflet</li>
+            <li>Public map: water, restrooms, outlets, shade, gardens, fishing spots</li>
+            <li>Group submaps: private scoped pins for crews and teams</li>
             <li>Tap-to-place or geolocated resource submission</li>
             <li>Simple jobs with sentence, price, and optional photo</li>
             <li>Germinate / planting planner with permaculture guidance</li>
             <li>Trust phrase card and saved contacts</li>
             <li>Relay-ready local inbox</li>
             <li>JSON export and import for portability</li>
+            <li>OKC public libraries seeded with water fountain and restroom pins</li>
           </ul>
         </section>
       </div>

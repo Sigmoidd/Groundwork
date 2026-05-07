@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Groundwork OKC</title>
+  <meta name="description" content="A local-first community utility layer for water, outlets, shade, stewardship, planting plans, and simple neighborhood jobs in Oklahoma City.">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">GROUNDWORK OKC</p>
+      <h1>A community-updated map of water, power, shade, stewardship, and planting plans.</h1>
+      <p class="lede">Groundwork OKC is local-first. Pins, jobs, plans, and inbox messages live in an append-only event log in your browser first. Use it today on Cloudflare Pages, then add community relays later.</p>
+    </div>
+    <div class="hero-actions">
+      <a class="button primary" href="#map">Open live map</a>
+      <a class="button" href="#planner">Open planner</a>
+      <a class="button" href="#inbox">Open inbox</a>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Primary">
+    <a href="#map" data-route="map" class="tab is-active">Map</a>
+    <a href="#jobs" data-route="jobs" class="tab">Jobs</a>
+    <a href="#planner" data-route="planner" class="tab">Planner</a>
+    <a href="#secure" data-route="secure" class="tab">Secure</a>
+    <a href="#inbox" data-route="inbox" class="tab">Inbox</a>
+    <a href="#relays" data-route="relays" class="tab">Relays</a>
+    <a href="#about" data-route="about" class="tab">About</a>
+  </nav>
+
+  <main class="shell">
+    <section id="view-map" class="view is-active">
+      <div class="panel-grid">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">PUBLIC UTILITY LAYER</p>
+              <h2>Live map pins</h2>
+            </div>
+            <div class="inline-actions">
+              <button class="button small" id="seedDemoButton" type="button">Load demo data</button>
+              <button class="button small" id="focusUserButton" type="button">Use my location</button>
+            </div>
+          </div>
+
+          <div class="map-toolbar">
+            <select id="resourceFilter">
+              <option value="all">All resource types</option>
+              <option value="water">Water</option>
+              <option value="outlet">Outlet</option>
+              <option value="shade">Shade</option>
+              <option value="tree">Fruit / tree</option>
+              <option value="garden">Garden / stewardship</option>
+            </select>
+            <select id="sectorFilter">
+              <option value="all">All sectors</option>
+              <option value="Paseo">Paseo</option>
+              <option value="Plaza">Plaza</option>
+              <option value="Midtown">Midtown</option>
+              <option value="Downtown">Downtown</option>
+              <option value="Innovation District">Innovation District</option>
+              <option value="Capitol Hill">Capitol Hill</option>
+              <option value="NE 23rd">NE 23rd</option>
+              <option value="Southside">Southside</option>
+            </select>
+          </div>
+
+          <div id="resourceSummary" class="summary-strip"></div>
+          <div id="mapCanvas" class="map-canvas" aria-label="Resource map"></div>
+          <p class="help">Tap the map to set the resource location before posting, or use your current location. Post only public or permissioned resources.</p>
+          <div id="resourceList" class="card-list" aria-live="polite"></div>
+        </section>
+
+        <aside class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">SUBMIT A RESOURCE</p>
+              <h2>Share a public or permissioned pin</h2>
+            </div>
+          </div>
+          <form id="resourceForm" class="stack" novalidate>
+            <label>
+              Resource type
+              <select name="resource" required>
+                <option value="water">Water</option>
+                <option value="outlet">Outlet</option>
+                <option value="shade">Shade</option>
+                <option value="tree">Fruit / tree</option>
+                <option value="garden">Garden / stewardship</option>
+              </select>
+            </label>
+            <label>
+              Sector
+              <select name="sector" required>
+                <option value="Paseo">Paseo</option>
+                <option value="Plaza">Plaza</option>
+                <option value="Midtown">Midtown</option>
+                <option value="Downtown">Downtown</option>
+                <option value="Innovation District">Innovation District</option>
+                <option value="Capitol Hill">Capitol Hill</option>
+                <option value="NE 23rd">NE 23rd</option>
+                <option value="Southside">Southside</option>
+              </select>
+            </label>
+            <label>
+              Access
+              <select name="access" required>
+                <option value="public">Public</option>
+                <option value="permissioned">Permissioned</option>
+              </select>
+            </label>
+            <label>
+              One sentence
+              <input type="text" name="note" maxlength="140" placeholder="Water fountain outside west library doors" required>
+            </label>
+            <div class="location-grid">
+              <label>
+                Latitude
+                <input type="number" name="lat" step="0.000001" placeholder="35.4676">
+              </label>
+              <label>
+                Longitude
+                <input type="number" name="lng" step="0.000001" placeholder="-97.5164">
+              </label>
+            </div>
+            <div class="inline-actions wrap">
+              <button class="button small" id="pickMapLocationButton" type="button">Pick from map</button>
+              <button class="button small" id="useLocationButton" type="button">Use current location</button>
+              <button class="button small" id="clearLocationButton" type="button">Clear</button>
+            </div>
+            <label>
+              Optional photo
+              <input type="file" name="photo" accept="image/*">
+            </label>
+            <div id="resourcePreview" class="preview hidden"></div>
+            <button class="button primary" type="submit">Post pin</button>
+            <p class="help">This creates a signed local event now. Multi-user relay sync can be wired in later.</p>
+          </form>
+        </aside>
+      </div>
+    </section>
+
+    <section id="view-jobs" class="view">
+      <div class="panel-grid two-up">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">MICRO JOBS</p>
+              <h2>Post a simple neighborhood task</h2>
+            </div>
+            <a class="button small" href="#planner">Need a planting plan?</a>
+          </div>
+          <form id="jobForm" class="stack" novalidate>
+            <label>
+              Service
+              <select name="service" required>
+                <option value="native planting">Native planting</option>
+                <option value="pollinator garden">Pollinator garden</option>
+                <option value="rain garden">Rain garden</option>
+                <option value="invasive removal">Invasive removal</option>
+                <option value="garden cleanup">Garden cleanup</option>
+                <option value="watering">Watering</option>
+              </select>
+            </label>
+            <label>
+              Sector
+              <select name="sector" required>
+                <option value="Paseo">Paseo</option>
+                <option value="Plaza">Plaza</option>
+                <option value="Midtown">Midtown</option>
+                <option value="Downtown">Downtown</option>
+                <option value="Innovation District">Innovation District</option>
+                <option value="Capitol Hill">Capitol Hill</option>
+                <option value="NE 23rd">NE 23rd</option>
+                <option value="Southside">Southside</option>
+              </select>
+            </label>
+            <label>
+              One sentence
+              <input type="text" name="sentence" maxlength="140" placeholder="Need weeds pulled around two fruit trees behind community center" required>
+            </label>
+            <label>
+              Price
+              <input type="number" name="price" min="0" step="1" placeholder="60" required>
+            </label>
+            <label>
+              Optional photo
+              <input type="file" name="photo" accept="image/*">
+            </label>
+            <div id="jobPreview" class="preview hidden"></div>
+            <button class="button primary" type="submit">Post job</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">OPEN TASKS</p>
+              <h2>Jobs nearby</h2>
+            </div>
+          </div>
+          <div id="jobSummary" class="summary-strip"></div>
+          <div id="jobList" class="card-list" aria-live="polite"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-planner" class="view">
+      <div class="panel-grid two-up">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">GERMINATE / PLANTING PLANNER</p>
+              <h2>Generate a small permaculture-minded plan</h2>
+            </div>
+          </div>
+          <form id="plannerForm" class="stack" novalidate>
+            <label>
+              Project type
+              <select name="projectType" required>
+                <option value="fruit tree guild">Fruit tree guild</option>
+                <option value="native pollinator bed">Native pollinator bed</option>
+                <option value="rain garden">Rain garden</option>
+                <option value="annual food patch">Annual food patch</option>
+                <option value="shade tree care">Shade tree care</option>
+              </select>
+            </label>
+            <label>
+              Species or focus
+              <input type="text" name="species" maxlength="60" placeholder="peach, okra, milkweed, pecan" required>
+            </label>
+            <div class="location-grid">
+              <label>
+                Sun
+                <select name="sun" required>
+                  <option value="full sun">Full sun</option>
+                  <option value="part sun">Part sun</option>
+                  <option value="mostly shade">Mostly shade</option>
+                </select>
+              </label>
+              <label>
+                Water access
+                <select name="waterAccess" required>
+                  <option value="easy">Easy</option>
+                  <option value="limited">Limited</option>
+                  <option value="haul by hand">Haul by hand</option>
+                </select>
+              </label>
+            </div>
+            <div class="location-grid">
+              <label>
+                Soil
+                <select name="soil" required>
+                  <option value="unknown">Unknown</option>
+                  <option value="clay">Clay</option>
+                  <option value="sandy">Sandy</option>
+                  <option value="loam">Loam</option>
+                  <option value="compacted urban">Compacted urban</option>
+                </select>
+              </label>
+              <label>
+                Start month
+                <select name="month" required>
+                  <option>January</option><option>February</option><option>March</option><option>April</option>
+                  <option>May</option><option>June</option><option>July</option><option>August</option>
+                  <option>September</option><option>October</option><option>November</option><option>December</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              Goal
+              <input type="text" name="goal" maxlength="120" placeholder="shade for walkers, fruit later, pollinator support" required>
+            </label>
+            <label>
+              One-sentence request
+              <input type="text" name="request" maxlength="140" placeholder="Need a low-water starter plan for one young peach tree and companions" required>
+            </label>
+            <button class="button primary" type="submit">Generate plan</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">LATEST PLANS</p>
+              <h2>Small and slow outputs</h2>
+            </div>
+          </div>
+          <div id="plannerList" class="card-list" aria-live="polite"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-secure" class="view">
+      <div class="panel-grid two-up">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">SECURE IDENTITY</p>
+              <h2>Your contact card</h2>
+            </div>
+          </div>
+          <div id="identityCard" class="identity-card"></div>
+          <div class="stack compact">
+            <button id="regenIdentityButton" class="button" type="button">Rotate local identity</button>
+            <button id="copyTrustPhraseButton" class="button" type="button">Copy trust phrase</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">VERIFY CONTACT</p>
+              <h2>Record a trust phrase</h2>
+            </div>
+          </div>
+          <form id="contactForm" class="stack" novalidate>
+            <label>
+              Alias
+              <input type="text" name="alias" maxlength="32" placeholder="CedarWren" required>
+            </label>
+            <label>
+              Trust phrase
+              <input type="text" name="phrase" maxlength="64" placeholder="oak / heron / 41" required>
+            </label>
+            <button class="button primary" type="submit">Save contact</button>
+          </form>
+          <div id="contactList" class="card-list" aria-live="polite"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-inbox" class="view">
+      <div class="panel-grid two-up">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">RELAY / INBOX</p>
+              <h2>Queue a private message</h2>
+            </div>
+          </div>
+          <form id="messageForm" class="stack" novalidate>
+            <label>
+              Contact alias
+              <input list="contactAliases" type="text" name="toAlias" maxlength="32" placeholder="CedarWren" required>
+              <datalist id="contactAliases"></datalist>
+            </label>
+            <label>
+              Topic
+              <select name="topic" required>
+                <option value="resource follow-up">Resource follow-up</option>
+                <option value="job response">Job response</option>
+                <option value="planting plan">Planting plan</option>
+                <option value="general">General</option>
+              </select>
+            </label>
+            <label>
+              Message
+              <textarea name="body" rows="4" maxlength="280" placeholder="I can water those tree wells Thursday evening." required></textarea>
+            </label>
+            <button class="button primary" type="submit">Queue message</button>
+            <p class="help">This MVP stores messages locally and marks them relay-ready. Wire your community relay later without changing the UX.</p>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">THREADS</p>
+              <h2>Local inbox</h2>
+            </div>
+          </div>
+          <div id="inboxSummary" class="summary-strip"></div>
+          <div id="threadList" class="card-list" aria-live="polite"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-relays" class="view">
+      <div class="panel-grid two-up">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">COMMUNITY RELAYS</p>
+              <h2>Control plane</h2>
+            </div>
+          </div>
+          <form id="relayForm" class="stack" novalidate>
+            <label>
+              Relay URL
+              <input type="url" name="url" placeholder="wss://relay.groundworkokc.org" required>
+            </label>
+            <button class="button primary" type="submit">Add relay</button>
+          </form>
+          <div id="relayList" class="card-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">EXPORT / IMPORT</p>
+              <h2>Move your local event log</h2>
+            </div>
+          </div>
+          <div class="stack compact">
+            <button id="exportButton" class="button primary" type="button">Export JSON</button>
+            <label class="button upload-button" for="importInput">Import JSON</label>
+            <input id="importInput" class="hidden" type="file" accept="application/json">
+          </div>
+          <div class="callout">
+            <strong>Current shape:</strong>
+            <p>Cloudflare Pages serves the shell. The browser keeps the working log. Relays can later forward signed events and inbox messages without becoming your source of truth.</p>
+          </div>
+          <pre id="eventShape" class="code-block"></pre>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-about" class="view">
+      <div class="panel-grid two-up">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">WHAT THIS IS</p>
+              <h2>Groundwork OKC</h2>
+            </div>
+          </div>
+          <div class="stack prose">
+            <p>Groundwork OKC is a civic utility layer for public water, outlets, shade, gardens, and small stewardship jobs around Oklahoma City.</p>
+            <p>This version adds a real slippy map, a relay-ready local inbox, a stronger resource submission flow, and a germination / planting planner guided by permaculture principles like observe and interact, small and slow solutions, and stacking functions.</p>
+            <p>Keep the map public for clearly public or permissioned resources. Keep sensitive coordination in the inbox. Keep the real log on devices.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">DEPLOY</p>
+              <h2>What ships in this build</h2>
+            </div>
+          </div>
+          <ul class="checklist">
+            <li>Real OpenStreetMap-backed pins via Leaflet</li>
+            <li>Tap-to-place or geolocated resource submission</li>
+            <li>Simple jobs with sentence, price, and optional photo</li>
+            <li>Germinate / planting planner with permaculture guidance</li>
+            <li>Trust phrase card and saved contacts</li>
+            <li>Relay-ready local inbox</li>
+            <li>JSON export and import for portability</li>
+          </ul>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

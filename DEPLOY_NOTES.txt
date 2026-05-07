@@ -1,0 +1,13 @@
+Cloudflare Pages:
+- Framework preset: None
+- Build command: exit 0
+- Build output directory: /
+
+Relay DNS:
+- Start with A record: relay.groundworkokc.org -> 3.148.240.58
+- Add AAAA later if you want: 2600:1f16:173e:8a00:b5e0:fc36:f7b8:3c78
+
+Lightsail:
+- Open ports 22, 80, 443
+- Clone repo on box
+- cd relay && npm install && npm start

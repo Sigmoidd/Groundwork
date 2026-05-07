@@ -1,7 +1,20 @@
 
 const STORAGE_KEYS = ['groundwork-okc-v2', 'groundwork-okc-v1'];
 const ACTIVE_STORAGE_KEY = 'groundwork-okc-v2';
-const DEFAULT_RELAYS = ['wss://relay.example.org'];
+const DEFAULT_RELAYS = ['https://relay.groundworkokc.org'];
+const LEGACY_RELAYS = new Set(['wss://relay.example.org', 'http://3.148.240.58']);
+const RELAY_KIND_TO_LOCAL = {
+  resource_pin: 'resource.pin.add',
+  job_posted: 'job.posted',
+  planting_request: 'planner.requested',
+  dm: 'dm.sent',
+};
+const LOCAL_KIND_TO_RELAY = {
+  'resource.pin.add': 'resource_pin',
+  'job.posted': 'job_posted',
+  'planner.requested': 'planting_request',
+  'dm.sent': 'dm',
+};
 const TRUST_A = ['oak', 'cedar', 'elm', 'maple', 'sycamore', 'willow', 'juniper', 'birch'];
 const TRUST_B = ['wren', 'heron', 'lark', 'fox', 'otter', 'bee', 'moth', 'hawk'];
 const TRUST_C = ['12', '19', '27', '31', '41', '54', '67', '83'];
@@ -83,6 +96,8 @@ wireRouting();
 wireForms();
 initMap();
 render();
+syncWithRelays();
+setInterval(syncWithRelays, 60_000);
 
 function loadState() {
   for (const key of STORAGE_KEYS) {
@@ -104,9 +119,18 @@ function normalizeState(parsed) {
     identity: parsed.identity || createIdentity(),
     contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
     groups: Array.isArray(parsed.groups) ? parsed.groups : [],
-    relays: Array.isArray(parsed.relays) && parsed.relays.length ? parsed.relays : DEFAULT_RELAYS.slice(),
+    relays: normalizeRelays(parsed.relays),
     events: Array.isArray(parsed.events) ? parsed.events : [],
   };
+}
+
+function normalizeRelays(relays) {
+  const source = Array.isArray(relays) && relays.length ? relays : DEFAULT_RELAYS;
+  const normalized = source
+    .map(url => String(url || '').trim())
+    .filter(Boolean)
+    .map(url => LEGACY_RELAYS.has(url) ? DEFAULT_RELAYS[0] : url);
+  return Array.from(new Set(normalized));
 }
 
 function persist() {
@@ -334,7 +358,128 @@ function appendEvent(kind, payload) {
   };
   state.events.push(event);
   persist();
+  pushEventToRelays(event);
   return event;
+}
+
+async function syncWithRelays() {
+  if (!state.relays.length) return;
+  await pushEventsToRelays(state.events);
+  const changed = await pullEventsFromRelays();
+  if (changed) {
+    persist();
+    render();
+  }
+}
+
+async function pushEventsToRelays(events) {
+  const relayEvents = events.map(toRelayEvent).filter(Boolean);
+  if (!relayEvents.length) return;
+  for (const relayUrl of state.relays) {
+    for (let index = 0; index < relayEvents.length; index += 100) {
+      await postRelayBatch(relayUrl, relayEvents.slice(index, index + 100));
+    }
+  }
+}
+
+async function pushEventToRelays(event) {
+  const relayEvent = toRelayEvent(event);
+  if (!relayEvent) return;
+  for (const relayUrl of state.relays) {
+    postRelayBatch(relayUrl, [relayEvent]);
+  }
+}
+
+async function postRelayBatch(relayUrl, batch) {
+  if (!batch.length) return;
+  try {
+    const response = await fetch(`${cleanRelayUrl(relayUrl)}/v1/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(batch.length === 1 ? batch[0] : batch),
+    });
+    if (!response.ok) throw new Error(`Relay write failed: ${response.status}`);
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+async function pullEventsFromRelays() {
+  let changed = false;
+  for (const relayUrl of state.relays) {
+    const queries = [
+      `${cleanRelayUrl(relayUrl)}/v1/events?limit=500`,
+      ...state.groups.map(group => `${cleanRelayUrl(relayUrl)}/v1/events?limit=500&includePrivate=true&recipient=${encodeURIComponent(group.id)}`),
+      `${cleanRelayUrl(relayUrl)}/v1/inbox/${encodeURIComponent(state.identity.alias)}?limit=500`,
+    ];
+    for (const url of queries) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Relay read failed: ${response.status}`);
+        const data = await response.json();
+        if (!Array.isArray(data.events)) continue;
+        data.events.forEach(relayEvent => {
+          const localEvent = fromRelayEvent(relayEvent);
+          if (!localEvent || state.events.some(event => event.id === localEvent.id)) return;
+          state.events.push(localEvent);
+          changed = true;
+        });
+      } catch (error) {
+        console.warn(error);
+      }
+    }
+  }
+  if (changed) {
+    state.events.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  }
+  return changed;
+}
+
+function toRelayEvent(event) {
+  const kind = LOCAL_KIND_TO_RELAY[event.kind];
+  if (!kind) return null;
+  const body = { ...event.payload, localKind: event.kind };
+  const relayEvent = {
+    id: event.id,
+    kind,
+    author: event.author,
+    createdAt: Date.parse(event.createdAt) || Date.now(),
+    scope: 'public',
+    tile: event.payload.sector ? `okc:sector:${event.payload.sector}` : '',
+    body,
+  };
+
+  if (event.kind === 'resource.pin.add' && event.payload.groupId) {
+    relayEvent.scope = 'private';
+    relayEvent.recipient = event.payload.groupId;
+  }
+  if (event.kind === 'dm.sent') {
+    relayEvent.scope = 'private';
+    relayEvent.recipient = event.payload.toAlias;
+  }
+  return relayEvent;
+}
+
+function fromRelayEvent(relayEvent) {
+  const kind = RELAY_KIND_TO_LOCAL[relayEvent.kind];
+  if (!kind || !relayEvent.body) return null;
+  const payload = { ...relayEvent.body };
+  delete payload.localKind;
+  if (kind === 'resource.pin.add' && relayEvent.scope === 'private' && relayEvent.recipient && !payload.groupId) {
+    payload.groupId = relayEvent.recipient;
+  }
+  return {
+    id: relayEvent.id,
+    author: relayEvent.author,
+    prev: null,
+    kind,
+    createdAt: new Date(relayEvent.createdAt).toISOString(),
+    payload,
+  };
+}
+
+function cleanRelayUrl(url) {
+  return String(url || '').replace(/\/+$/, '');
 }
 
 function deriveResources() {

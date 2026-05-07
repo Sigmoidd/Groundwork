@@ -4,7 +4,7 @@ Cloudflare Pages:
 - Build output directory: /
 
 Relay DNS:
-- Start with A record: relay.groundworkokc.org -> 3.148.240.58
+- Start with A record: relay.groundworkokc.org -> relay host
 - Add AAAA later if you want: 2600:1f16:173e:8a00:b5e0:fc36:f7b8:3c78
 
 Lightsail:

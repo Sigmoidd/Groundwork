@@ -1,32 +1,21 @@
-# Groundwork OKC
+# Groundwork OKC v2
 
-Community-updated map and relay starter for Oklahoma City.
+Static site bundle for Cloudflare Pages or GitHub Pages.
 
-## What is in this repo
+## Added in v2
 
-- `index.html` — static Cloudflare Pages site
-- `relay/` — tiny Node relay for `resource_pin`, `job_posted`, `dm`, and `planting_request`
+- Real map pins with Leaflet + OpenStreetMap tiles
+- Better submit-a-resource flow with tap-to-place and geolocation
+- Relay-ready local inbox
+- Germinate / planting planner using simple permaculture principles
+- Migration from prior `groundwork-okc-v1` local storage
 
-## Pages build settings
+## Deploy on Cloudflare Pages
 
-Use Cloudflare Pages with GitHub integration:
+Upload the contents of this folder or the zip archive to your Pages project.
 
-- Framework preset: `None`
-- Build command: `exit 0`
-- Build output directory: `/`
+## Notes
 
-## Relay
-
-The relay is meant for a cheap VPS. It keeps an append-only `events.ndjson` log and exposes:
-
-- `GET /health`
-- `GET /v1/events`
-- `POST /v1/events`
-- `GET /v1/inbox/:recipient`
-- `GET /v1/stream`
-
-## Ground rules
-
-- Public map pins are public.
-- Do not post private-property resources without permission.
-- Keep private details in direct messages, not public pins.
+- This build is still local-first. Messages and pins are stored in the browser.
+- The inbox is relay-ready, not yet connected to a live relay backend.
+- Use only public or permissioned resource pins.

@@ -696,7 +696,7 @@ function handleJoinGroup(event) {
 
 function renderGroups() {
   if (!state.groups.length) {
-    groupList.innerHTML = '<div class="empty">You haven\\'t joined any groups yet.</div>';
+    groupList.innerHTML = `<div class="empty">You haven't joined any groups yet.</div>`;
     return;
   }
 

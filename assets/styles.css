@@ -513,3 +513,31 @@ textarea { resize: vertical; }
     grid-template-columns: 1fr;
   }
 }
+
+
+.event-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: rgba(168, 85, 247, 0.12);
+  color: #d8b4fe;
+}
+
+.event-map-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px !important;
+  height: 30px !important;
+  margin-left: -15px !important;
+  margin-top: -15px !important;
+  border-radius: 999px;
+  background: rgba(168, 85, 247, 0.92);
+  color: white;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.24);
+  border: 1px solid rgba(255,255,255,0.15);
+  font-size: 16px;
+}

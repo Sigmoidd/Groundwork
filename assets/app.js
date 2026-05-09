@@ -10,6 +10,7 @@ const RELAY_KIND_TO_LOCAL = {
   resource_pin_rated: 'resource.pin.rated',
   resource_pin_noted: 'resource.pin.noted',
   resource_pin_photo_added: 'resource.pin.photo.added',
+  event_pin: 'event.pin.add',
   job_posted: 'job.posted',
   planting_request: 'planner.requested',
   dm: 'dm.sent',
@@ -21,6 +22,7 @@ const LOCAL_KIND_TO_RELAY = {
   'resource.pin.rated': 'resource_pin_rated',
   'resource.pin.noted': 'resource_pin_noted',
   'resource.pin.photo.added': 'resource_pin_photo_added',
+  'event.pin.add': 'event_pin',
   'job.posted': 'job_posted',
   'planner.requested': 'planting_request',
   'dm.sent': 'dm',
@@ -55,11 +57,12 @@ const state = loadState();
 
 let map = null;
 let markersLayer = null;
+let eventMarkersLayer = null;
 let pendingLocation = null;
 let pendingMarker = null;
 let currentThread = null;
 
-const routes = ['map', 'jobs', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
+const routes = ['map', 'jobs', 'events', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
 const tabEls = Array.from(document.querySelectorAll('.tab'));
 const viewEls = routes.reduce((acc, route) => {
   acc[route] = document.getElementById(`view-${route}`);
@@ -69,6 +72,7 @@ const viewEls = routes.reduce((acc, route) => {
 const resourceForm = document.getElementById('resourceForm');
 const jobForm = document.getElementById('jobForm');
 const plannerForm = document.getElementById('plannerForm');
+const eventForm = document.getElementById('eventForm');
 const contactForm = document.getElementById('contactForm');
 const messageForm = document.getElementById('messageForm');
 const relayForm = document.getElementById('relayForm');
@@ -78,12 +82,14 @@ const toast = document.getElementById('toast');
 const resourceList = document.getElementById('resourceList');
 const jobList = document.getElementById('jobList');
 const plannerList = document.getElementById('plannerList');
+const eventList = document.getElementById('eventList');
 const contactList = document.getElementById('contactList');
 const threadList = document.getElementById('threadList');
 const relayList = document.getElementById('relayList');
 const identityCard = document.getElementById('identityCard');
 const resourceSummary = document.getElementById('resourceSummary');
 const jobSummary = document.getElementById('jobSummary');
+const eventSummary = document.getElementById('eventSummary');
 const inboxSummary = document.getElementById('inboxSummary');
 const eventShape = document.getElementById('eventShape');
 const contactAliases = document.getElementById('contactAliases');
@@ -99,9 +105,13 @@ const focusUserButton = document.getElementById('focusUserButton');
 const pickMapLocationButton = document.getElementById('pickMapLocationButton');
 const useLocationButton = document.getElementById('useLocationButton');
 const clearLocationButton = document.getElementById('clearLocationButton');
+const locationQueryInput = document.getElementById('locationQueryInput');
+const lookupLocationButton = document.getElementById('lookupLocationButton');
+const selectedLocationCard = document.getElementById('selectedLocationCard');
 const regenIdentityButton = document.getElementById('regenIdentityButton');
 const copyTrustPhraseButton = document.getElementById('copyTrustPhraseButton');
 const exportButton = document.getElementById('exportButton');
+const loadBeHeardEventsButton = document.getElementById('loadBeHeardEventsButton');
 const createGroupForm = document.getElementById('createGroupForm');
 const joinGroupForm = document.getElementById('joinGroupForm');
 const groupList = document.getElementById('groupList');
@@ -172,6 +182,7 @@ function wireForms() {
   resourceForm?.addEventListener('submit', handleResourceSubmit);
   jobForm?.addEventListener('submit', handleJobSubmit);
   plannerForm?.addEventListener('submit', handlePlannerSubmit);
+  eventForm?.addEventListener('submit', handleEventSubmit);
   contactForm?.addEventListener('submit', handleContactSubmit);
   messageForm?.addEventListener('submit', handleMessageSubmit);
   relayForm?.addEventListener('submit', handleRelaySubmit);
@@ -201,6 +212,15 @@ function wireForms() {
     resourcePreview.innerHTML = dataUrl ? `<img src="${escapeAttribute(dataUrl)}" alt="Resource preview">` : '';
     resourcePreview.classList.toggle('hidden', !dataUrl);
     resourcePreview.dataset.photo = dataUrl;
+
+    if (file) {
+      const attached = await populateLocationFromPhotoExif(file);
+      if (attached) {
+        toastMessage('Location attached from photo EXIF.');
+      } else if (!pendingLocation && !String(locationQueryInput?.value || '').trim()) {
+        toastMessage('No GPS found in the photo. Search a place or use current location.');
+      }
+    }
   });
 
   const jobPhotoInput = jobForm?.querySelector('input[name="photo"]');
@@ -251,8 +271,15 @@ function wireForms() {
 
   exportButton?.addEventListener('click', handleExport);
   seedDemoButton?.addEventListener('click', seedDemoData);
+  loadBeHeardEventsButton?.addEventListener('click', seedBeHeardEvents);
   focusUserButton?.addEventListener('click', focusUserLocation);
   useLocationButton?.addEventListener('click', applyCurrentLocationToForm);
+  lookupLocationButton?.addEventListener('click', handleLookupLocation);
+  locationQueryInput?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    handleLookupLocation();
+  });
   pickMapLocationButton?.addEventListener('click', () => {
     window.location.hash = '#map';
     toastMessage('Tap the map to set the resource location.');
@@ -300,14 +327,15 @@ function initMap() {
 
   markersLayer = L.layerGroup().addTo(map);
 
-  map.on('click', event => {
+  map.on('click', async event => {
     pendingLocation = {
       lat: roundCoord(event.latlng.lat),
       lng: roundCoord(event.latlng.lng),
     };
     updatePendingLocationFields();
     renderPendingMarker();
-    toastMessage('Resource location set from map.');
+    await populateLocationDetailsFromCoords('Dropped pin');
+    toastMessage('Location attached from map.');
   });
 }
 
@@ -334,7 +362,7 @@ function applyCurrentLocationToForm() {
     return;
   }
 
-  navigator.geolocation.getCurrentPosition(position => {
+  navigator.geolocation.getCurrentPosition(async position => {
     pendingLocation = {
       lat: roundCoord(position.coords.latitude),
       lng: roundCoord(position.coords.longitude),
@@ -342,7 +370,8 @@ function applyCurrentLocationToForm() {
     updatePendingLocationFields();
     renderPendingMarker();
     if (map) map.setView([pendingLocation.lat, pendingLocation.lng], 15);
-    toastMessage('Location added to the resource form.');
+    await populateLocationDetailsFromCoords('Current location');
+    toastMessage('Current location attached.');
   }, () => toastMessage('Could not get your location.'), {
     enableHighAccuracy: true,
     timeout: 7000,
@@ -351,9 +380,21 @@ function applyCurrentLocationToForm() {
 
 function clearPendingLocation() {
   pendingLocation = null;
+
   if (resourceForm) {
     resourceForm.lat.value = '';
     resourceForm.lng.value = '';
+    resourceForm.placeName.value = '';
+    resourceForm.address.value = '';
+  }
+
+  if (locationQueryInput) {
+    locationQueryInput.value = '';
+  }
+
+  if (selectedLocationCard) {
+    selectedLocationCard.innerHTML = '';
+    selectedLocationCard.classList.add('hidden');
   }
 
   if (pendingMarker && map) {
@@ -372,6 +413,166 @@ function updatePendingLocationFields() {
   if (!resourceForm) return;
   resourceForm.lat.value = pendingLocation ? pendingLocation.lat : '';
   resourceForm.lng.value = pendingLocation ? pendingLocation.lng : '';
+}
+
+async function handleLookupLocation() {
+  const rawQuery = String(locationQueryInput?.value || '').trim();
+  if (!rawQuery) {
+    toastMessage('Type a place name or street address first.');
+    return;
+  }
+
+  if (lookupLocationButton) lookupLocationButton.disabled = true;
+
+  try {
+    const sector = resourceForm?.sector?.value || 'Downtown';
+    const match = await geocodePlaceQuery(rawQuery, sector);
+    if (!match) {
+      toastMessage('Could not find that place.');
+      return;
+    }
+
+    pendingLocation = { lat: roundCoord(match.lat), lng: roundCoord(match.lng) };
+    updatePendingLocationFields();
+    renderPendingMarker();
+
+    if (resourceForm) {
+      resourceForm.placeName.value = match.placeName;
+      resourceForm.address.value = match.address;
+    }
+
+    if (locationQueryInput) {
+      locationQueryInput.value = match.placeName || match.address;
+    }
+
+    renderSelectedLocationCard(match.placeName, match.address, 'Attached from search');
+    if (map) map.setView([pendingLocation.lat, pendingLocation.lng], 15);
+    toastMessage('Place attached.');
+  } catch (error) {
+    console.warn(error);
+    toastMessage('Lookup failed. Try a fuller address.');
+  } finally {
+    if (lookupLocationButton) lookupLocationButton.disabled = false;
+  }
+}
+
+async function populateLocationDetailsFromCoords(fallbackLabel) {
+  if (!pendingLocation) return;
+
+  try {
+    const match = await reverseGeocodePoint(pendingLocation.lat, pendingLocation.lng);
+    if (resourceForm) {
+      resourceForm.placeName.value = match.placeName || fallbackLabel;
+      resourceForm.address.value = match.address || '';
+    }
+    if (locationQueryInput && !locationQueryInput.value.trim()) {
+      locationQueryInput.value = match.placeName || match.address || fallbackLabel;
+    }
+    renderSelectedLocationCard(match.placeName || fallbackLabel, match.address, 'Attached from map');
+  } catch (error) {
+    console.warn(error);
+    if (resourceForm) {
+      resourceForm.placeName.value = fallbackLabel;
+      resourceForm.address.value = '';
+    }
+    renderSelectedLocationCard(fallbackLabel, '', 'Attached from map');
+  }
+}
+
+function renderSelectedLocationCard(placeName, address, subtitle) {
+  if (!selectedLocationCard) return;
+
+  const lines = [
+    placeName ? `<strong>${escapeHtml(placeName)}</strong>` : '',
+    address ? `<p>${escapeHtml(address)}</p>` : '',
+    subtitle ? `<p class="card-subtitle">${escapeHtml(subtitle)}</p>` : '',
+  ].filter(Boolean).join('');
+
+  selectedLocationCard.innerHTML = lines;
+  selectedLocationCard.classList.remove('hidden');
+}
+
+async function geocodePlaceQuery(query, sector) {
+  const biasedQuery = buildBiasedLocationQuery(query, sector);
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('limit', '1');
+  url.searchParams.set('addressdetails', '1');
+  url.searchParams.set('countrycodes', 'us');
+  url.searchParams.set('q', biasedQuery);
+
+  const response = await fetch(url.toString(), {
+    headers: { 'Accept-Language': 'en-US,en;q=0.9' },
+  });
+  if (!response.ok) throw new Error(`Geocode failed: ${response.status}`);
+
+  const results = await response.json();
+  if (!Array.isArray(results) || !results.length) return null;
+
+  const item = results[0];
+  return {
+    lat: Number(item.lat),
+    lng: Number(item.lon),
+    placeName: extractPlaceName(item, query),
+    address: item.display_name || '',
+  };
+}
+
+async function reverseGeocodePoint(lat, lng) {
+  const url = new URL('https://nominatim.openstreetmap.org/reverse');
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('lat', String(lat));
+  url.searchParams.set('lon', String(lng));
+
+  const response = await fetch(url.toString(), {
+    headers: { 'Accept-Language': 'en-US,en;q=0.9' },
+  });
+  if (!response.ok) throw new Error(`Reverse geocode failed: ${response.status}`);
+
+  const item = await response.json();
+  return {
+    placeName: extractPlaceName(item, ''),
+    address: item.display_name || '',
+  };
+}
+
+function buildBiasedLocationQuery(query, sector) {
+  const text = String(query || '').trim();
+  if (!text) return '';
+
+  if (/\b(oklahoma|ok|tulsa|norman|edmond)\b/i.test(text)) return text;
+
+  const sectorBits = sector && sector !== 'all' ? `${sector}, ` : '';
+  return `${text}, ${sectorBits}Oklahoma City, OK`;
+}
+
+function extractPlaceName(item, fallback) {
+  if (!item) return fallback || '';
+  if (item.name) return String(item.name);
+  if (item.display_name) return String(item.display_name).split(',')[0].trim();
+  return fallback || '';
+}
+
+async function populateLocationFromPhotoExif(file) {
+  if (!window.exifr || !file) return false;
+
+  try {
+    const gps = await window.exifr.gps(file);
+    const lat = Number(gps?.latitude ?? gps?.lat);
+    const lng = Number(gps?.longitude ?? gps?.lon);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+
+    pendingLocation = { lat: roundCoord(lat), lng: roundCoord(lng) };
+    updatePendingLocationFields();
+    renderPendingMarker();
+    if (map) map.setView([pendingLocation.lat, pendingLocation.lng], 15);
+    await populateLocationDetailsFromCoords('Photo location');
+    return true;
+  } catch (error) {
+    console.warn(error);
+    return false;
+  }
 }
 
 function createIdentity() {
@@ -635,6 +836,13 @@ function deriveResources() {
   return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
+function deriveEvents() {
+  return state.events
+    .filter(event => event.kind === 'event.pin.add')
+    .map(event => normalizeEventRecord({ ...event.payload, id: event.id, createdAt: event.createdAt }))
+    .sort((a, b) => new Date(resolveEventStart(a)) - new Date(resolveEventStart(b)));
+}
+
 function deriveJobs() {
   return state.events
     .filter(event => event.kind === 'job.posted')
@@ -661,6 +869,7 @@ function render() {
   renderResources();
   renderMap();
   renderJobs();
+  renderEvents();
   renderPlans();
   renderIdentity();
   renderContacts();
@@ -726,16 +935,21 @@ function renderResources() {
 }
 
 function renderMap() {
-  if (!map || !markersLayer) return;
+  if (!map || !markersLayer || !eventMarkersLayer) return;
 
   markersLayer.clearLayers();
+  eventMarkersLayer.clearLayers();
+
   const resources = getFilteredResources();
-  if (!resources.length) {
+  const events = getRenderableEvents();
+
+  if (!resources.length && !events.length) {
     renderPendingMarker();
     return;
   }
 
   const bounds = [];
+
   resources.forEach(item => {
     const [lat, lng] = resolveCoords(item);
     bounds.push([lat, lng]);
@@ -743,8 +957,27 @@ function renderMap() {
     const marker = L.marker([lat, lng]).addTo(markersLayer);
     marker.bindPopup(
       `<strong>${escapeHtml(RESOURCE_ICONS[item.resource] || '📍')} ${escapeHtml(item.note)}</strong><br>` +
+      `${item.placeName ? `${escapeHtml(item.placeName)}<br>` : ''}` +
+      `${item.address ? `${escapeHtml(item.address)}<br>` : ''}` +
       `${escapeHtml(item.sector)} · ${escapeHtml(item.access)}<br>` +
       `<small>by ${escapeHtml(item.alias || 'Groundwork')}</small>`
+    );
+  });
+
+  events.forEach(item => {
+    const [lat, lng] = resolveCoords(item);
+    bounds.push([lat, lng]);
+
+    const marker = L.marker([lat, lng], {
+      icon: L.divIcon({ className: 'event-map-marker', html: '📅' })
+    }).addTo(eventMarkersLayer);
+
+    marker.bindPopup(
+      `<strong>📅 ${escapeHtml(item.title)}</strong><br>` +
+      `${item.placeName ? `${escapeHtml(item.placeName)}<br>` : ''}` +
+      `${item.address ? `${escapeHtml(item.address)}<br>` : ''}` +
+      `${escapeHtml(formatEventSchedule(item))}<br>` +
+      `<small>${escapeHtml(item.organizer || 'Groundwork')}</small>`
     );
   });
 
@@ -763,6 +996,29 @@ function resolveCoords(item) {
   }
 
   return SECTOR_COORDS[item.sector] || [35.4676, -97.5164];
+}
+
+function renderEvents() {
+  const events = deriveEvents();
+  const totals = countBy(events, item => item.priceTier || 'free');
+  const upcoming = getRenderableEvents();
+
+  if (eventSummary) {
+    eventSummary.innerHTML = [
+      `<span class="stat"><strong>${events.length}</strong> total events</span>`,
+      `<span class="stat"><strong>${upcoming.length}</strong> upcoming</span>`,
+      `<span class="stat"><strong>${totals['free'] || 0}</strong> free</span>`,
+      `<span class="stat"><strong>${totals['under-10'] || 0}</strong> under $10</span>`,
+    ].join('');
+  }
+
+  if (!eventList) return;
+  if (!events.length) {
+    eventList.innerHTML = '<div class="empty">No ephemeral events yet. Add one or load the BeHeard OKC seed.</div>';
+    return;
+  }
+
+  eventList.innerHTML = events.map(item => renderEventCard(item)).join('');
 }
 
 function renderJobs() {
@@ -960,6 +1216,7 @@ function renderEventShape() {
       'resource.pin.rated',
       'resource.pin.noted',
       'resource.pin.photo.added',
+      'event.pin.add',
       'job.posted',
       'planner.requested',
       'dm.sent',
@@ -967,11 +1224,16 @@ function renderEventShape() {
     createdAt: 'ISO timestamp',
     payload: {
       resource: 'water | restroom | outlet | shade | tree | garden | fishing',
+      title: 'BeHeard OKC donation drop-off',
+      organizer: 'BeHeard Movement',
+      priceTier: 'free | under-10 | paid',
       resourceId: 'present on scorecard events',
       score: 5,
       body: 'optional note',
       photo: 'optional data URL',
       sector: 'Paseo',
+      placeName: 'Homeless Alliance WestTown',
+      address: '1724 NW 4th St, Oklahoma City, OK 73106',
       lat: 35.4676,
       lng: -97.5164,
       note: 'one sentence',
@@ -996,11 +1258,60 @@ async function handleResourceSubmit(event) {
   }
 
   const sector = String(fd.get('sector'));
-  const lat = Number(fd.get('lat'));
-  const lng = Number(fd.get('lng'));
-  const coords = Number.isFinite(lat) && Number.isFinite(lng)
-    ? [lat, lng]
-    : SECTOR_COORDS[sector] || [35.4676, -97.5164];
+  let lat = Number(fd.get('lat'));
+  let lng = Number(fd.get('lng'));
+  let placeName = String(fd.get('placeName') || '').trim();
+  let address = String(fd.get('address') || '').trim();
+  const rawLocationQuery = String(fd.get('locationQuery') || '').trim();
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    if (rawLocationQuery) {
+      try {
+        const match = await geocodePlaceQuery(rawLocationQuery, sector);
+        if (match) {
+          lat = roundCoord(match.lat);
+          lng = roundCoord(match.lng);
+          placeName = placeName || match.placeName;
+          address = address || match.address;
+          pendingLocation = { lat, lng };
+          updatePendingLocationFields();
+          renderPendingMarker();
+          if (resourceForm) {
+            resourceForm.placeName.value = placeName;
+            resourceForm.address.value = address;
+          }
+          renderSelectedLocationCard(placeName, address, 'Attached on submit');
+        }
+      } catch (error) {
+        console.warn(error);
+      }
+    }
+  }
+
+  if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && resourceForm?.photo?.files?.[0]) {
+    const attached = await populateLocationFromPhotoExif(resourceForm.photo.files[0]);
+    if (attached) {
+      lat = Number(resourceForm.lat.value);
+      lng = Number(resourceForm.lng.value);
+      placeName = String(resourceForm.placeName.value || placeName).trim();
+      address = String(resourceForm.address.value || address).trim();
+    }
+  }
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    toastMessage('Attach a place, let photo EXIF fill it, use current location, or tap the map before posting.');
+    return;
+  }
+
+  if (!placeName && !address) {
+    try {
+      const match = await reverseGeocodePoint(lat, lng);
+      placeName = match.placeName || placeName;
+      address = match.address || address;
+    } catch (error) {
+      console.warn(error);
+    }
+  }
 
   const scopeValue = fd.get('scope') || 'public';
   const groupId = scopeValue === 'public' ? null : scopeValue;
@@ -1010,8 +1321,10 @@ async function handleResourceSubmit(event) {
     sector,
     access: fd.get('access'),
     note,
-    lat: coords[0],
-    lng: coords[1],
+    lat,
+    lng,
+    placeName,
+    address,
     photo: resourcePreview.dataset.photo || '',
     alias: state.identity.alias,
     groupId,
@@ -1030,6 +1343,58 @@ async function handleResourceSubmit(event) {
   renderResources();
   renderMap();
   toastMessage('Pin posted locally.');
+}
+
+async function handleEventSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const fd = new FormData(form);
+
+  const title = String(fd.get('title') || '').trim();
+  const organizer = String(fd.get('organizer') || '').trim() || 'Groundwork';
+  const sector = String(fd.get('sector') || 'Downtown');
+  const locationQuery = String(fd.get('locationQuery') || '').trim();
+  const date = String(fd.get('date') || '').trim();
+  const startTime = String(fd.get('startTime') || '').trim();
+  const endTime = String(fd.get('endTime') || '').trim();
+
+  if (!title || !locationQuery) {
+    toastMessage('Add a title and a place or address for the event.');
+    return;
+  }
+
+  let match = null;
+  try {
+    match = await geocodePlaceQuery(locationQuery, sector);
+  } catch (error) {
+    console.warn(error);
+  }
+
+  if (!match) {
+    toastMessage('Could not locate that event place.');
+    return;
+  }
+
+  appendEvent('event.pin.add', {
+    title,
+    organizer,
+    sector,
+    priceTier: String(fd.get('priceTier') || 'free'),
+    note: String(fd.get('note') || '').trim(),
+    url: String(fd.get('url') || '').trim(),
+    placeName: match.placeName,
+    address: match.address,
+    lat: roundCoord(match.lat),
+    lng: roundCoord(match.lng),
+    date,
+    startTime,
+    endTime,
+  });
+
+  form.reset();
+  renderEvents();
+  renderMap();
+  toastMessage('Event posted locally.');
 }
 
 function handleResourceCardClick(event) {
@@ -1342,7 +1707,127 @@ async function handleImport(event) {
   }
 }
 
-function seedDemoData() {
+async function seedBeHeardEvents() {
+  const existingTitles = new Set(deriveEvents().map(item => `${item.title}|${item.scheduleText || item.date || ''}`));
+  const seeds = [
+    {
+      title: 'BeHeard OKC outreach',
+      organizer: 'BeHeard Movement',
+      sector: 'Southside',
+      priceTier: 'free',
+      placeName: '1725 SE 59th St outreach stop',
+      address: '1725 SE 59th St, Oklahoma City, OK',
+      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      url: 'https://bhmovement.org/OKC',
+      date: '2026-05-09',
+      startTime: '10:00',
+      endTime: '14:00',
+      scheduleText: 'Sat May 9 · 10:00 AM–2:00 PM',
+    },
+    {
+      title: 'BeHeard OKC outreach',
+      organizer: 'BeHeard Movement',
+      sector: 'Plaza',
+      priceTier: 'free',
+      placeName: '2605 N MacArthur Blvd outreach stop',
+      address: '2605 N MacArthur Blvd, Oklahoma City, OK',
+      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      url: 'https://bhmovement.org/OKC',
+      date: '2026-05-12',
+      startTime: '10:00',
+      endTime: '15:00',
+      scheduleText: 'Tue May 12 · 10:00 AM–3:00 PM',
+    },
+    {
+      title: 'BeHeard OKC outreach',
+      organizer: 'BeHeard Movement',
+      sector: 'Plaza',
+      priceTier: 'free',
+      placeName: '1329 NW 23rd St outreach stop',
+      address: '1329 NW 23rd St, Oklahoma City, OK',
+      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      url: 'https://bhmovement.org/OKC',
+      date: '2026-05-14',
+      startTime: '10:00',
+      endTime: '15:00',
+      scheduleText: 'Thu May 14 · 10:00 AM–3:00 PM',
+    },
+    {
+      title: 'BeHeard OKC outreach',
+      organizer: 'BeHeard Movement',
+      sector: 'Southside',
+      priceTier: 'free',
+      placeName: '11513 S Western Ave outreach stop',
+      address: '11513 S Western Ave, Oklahoma City, OK',
+      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      url: 'https://bhmovement.org/OKC',
+      date: '2026-05-16',
+      startTime: '10:00',
+      endTime: '14:00',
+      scheduleText: 'Sat May 16 · 10:00 AM–2:00 PM',
+    },
+    {
+      title: 'BeHeard OKC outreach',
+      organizer: 'BeHeard Movement',
+      sector: 'Plaza',
+      priceTier: 'free',
+      placeName: '2605 N MacArthur Blvd outreach stop',
+      address: '2605 N MacArthur Blvd, Oklahoma City, OK',
+      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      url: 'https://bhmovement.org/OKC',
+      date: '2026-05-19',
+      startTime: '10:00',
+      endTime: '15:00',
+      scheduleText: 'Tue May 19 · 10:00 AM–3:00 PM',
+    },
+    {
+      title: 'BeHeard OKC nighttime outreach',
+      organizer: 'BeHeard Movement',
+      sector: 'Plaza',
+      priceTier: 'free',
+      placeName: '1329 NW 23rd St nighttime outreach',
+      address: '1329 NW 23rd St, Oklahoma City, OK',
+      note: 'BeHeard OKC nighttime outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      url: 'https://bhmovement.org/OKC',
+      date: '2026-05-21',
+      startTime: '15:00',
+      endTime: '21:00',
+      scheduleText: 'Thu May 21 · 3:00 PM–9:00 PM',
+    },
+  ];
+
+  let added = 0;
+  for (const seed of seeds) {
+    if (existingTitles.has(`${seed.title}|${seed.scheduleText || seed.date || ''}`)) continue;
+
+    let coords = null;
+    if (seed.address || seed.placeName) {
+      try {
+        const match = await geocodePlaceQuery(seed.address || seed.placeName, seed.sector);
+        coords = match ? [roundCoord(match.lat), roundCoord(match.lng)] : null;
+        if (match) {
+          seed.placeName = match.placeName || seed.placeName;
+          seed.address = match.address || seed.address;
+        }
+      } catch (error) {
+        console.warn(error);
+      }
+    }
+
+    appendEvent('event.pin.add', {
+      ...seed,
+      lat: coords ? coords[0] : null,
+      lng: coords ? coords[1] : null,
+    });
+    added += 1;
+  }
+
+  renderEvents();
+  renderMap();
+  toastMessage(added ? `Loaded ${added} BeHeard OKC events.` : 'BeHeard OKC events already loaded.');
+}
+
+async function seedDemoData() {
   const existingNotes = new Set(deriveResources().map(item => item.note));
   const seeds = [
     {
@@ -1350,8 +1835,8 @@ function seedDemoData() {
       sector: 'Downtown',
       access: 'public',
       note: 'Water fountain inside Ronald J. Norick Downtown Library lobby',
-      lat: 35.4681,
-      lng: -97.5174,
+      placeName: 'Ronald J. Norick Downtown Library',
+      address: '300 Park Ave, Oklahoma City, OK 73102',
       alias: 'Groundwork Seed',
       accessibility: { adaStatus: 'ada-confirmed', wheelchairAccess: 'reachable', pathSurface: 'paved' },
     },
@@ -1360,59 +1845,163 @@ function seedDemoData() {
       sector: 'Downtown',
       access: 'public',
       note: 'Public restroom inside Ronald J. Norick Downtown Library',
-      lat: 35.4681,
-      lng: -97.5174,
+      placeName: 'Ronald J. Norick Downtown Library',
+      address: '300 Park Ave, Oklahoma City, OK 73102',
       alias: 'Groundwork Seed',
       accessibility: { adaStatus: 'ada-confirmed', wheelchairAccess: 'reachable', pathSurface: 'paved' },
     },
     {
       resource: 'water',
-      sector: 'Midtown',
+      sector: 'Downtown',
       access: 'public',
-      note: 'Water fountain at Midtown library entry',
-      lat: 35.4732,
-      lng: -97.5177,
+      note: 'Water access and day services at Homeless Alliance WestTown campus',
+      placeName: 'Homeless Alliance WestTown Homeless Resource Campus',
+      address: '1724 NW 4th St, Oklahoma City, OK 73106',
       alias: 'Groundwork Seed',
       accessibility: { adaStatus: 'ada-confirmed', wheelchairAccess: 'reachable', pathSurface: 'paved' },
     },
     {
       resource: 'restroom',
-      sector: 'Midtown',
+      sector: 'Downtown',
       access: 'public',
-      note: 'Restroom inside Midtown library',
-      lat: 35.4732,
-      lng: -97.5177,
+      note: 'Restroom and day shelter access at Homeless Alliance Day Shelter',
+      placeName: 'Homeless Alliance Day Shelter',
+      address: '1729 NW 3rd St, Oklahoma City, OK 73106',
       alias: 'Groundwork Seed',
       accessibility: { adaStatus: 'ada-confirmed', wheelchairAccess: 'reachable', pathSurface: 'paved' },
     },
     {
-      resource: 'shade',
-      sector: 'Paseo',
+      resource: 'restroom',
+      sector: 'Downtown',
       access: 'public',
-      note: 'Street tree shade near Paseo arts strip',
-      lat: 35.5225,
-      lng: -97.5263,
+      note: 'Winter shelter intake point at Homeless Alliance campus',
+      placeName: 'Homeless Alliance Winter Shelter',
+      address: '1601 NW 4th St, Oklahoma City, OK 73106',
       alias: 'Groundwork Seed',
-      accessibility: { adaStatus: 'partial', wheelchairAccess: 'limited', pathSurface: 'mixed' },
+      accessibility: { adaStatus: 'partial', wheelchairAccess: 'reachable', pathSurface: 'paved' },
     },
   ];
 
   let added = 0;
-  seeds.forEach(seed => {
-    if (existingNotes.has(seed.note)) return;
-    appendEvent('resource.pin.add', seed);
+  for (const seed of seeds) {
+    if (existingNotes.has(seed.note)) continue;
+
+    let coords = null;
+    try {
+      const match = await geocodePlaceQuery(seed.address || seed.placeName, seed.sector);
+      coords = match ? [roundCoord(match.lat), roundCoord(match.lng)] : null;
+    } catch (error) {
+      console.warn(error);
+    }
+
+    appendEvent('resource.pin.add', {
+      ...seed,
+      lat: coords ? coords[0] : (SECTOR_COORDS[seed.sector] || [35.4676, -97.5164])[0],
+      lng: coords ? coords[1] : (SECTOR_COORDS[seed.sector] || [35.4676, -97.5164])[1],
+    });
     added += 1;
-  });
+  }
 
   renderResources();
   renderMap();
-  toastMessage(added ? `Loaded ${added} demo pins.` : 'Demo pins already loaded.');
+  toastMessage(added ? `Loaded ${added} seed pins.` : 'Seed pins already loaded.');
+}
+
+function renderEventCard(item) {
+  const priceLabel = item.priceTier === 'under-10' ? 'Under $10' : item.priceTier === 'paid' ? 'Paid' : 'Free';
+  const locationLine = [item.placeName, item.address].filter(Boolean).join(' · ');
+
+  return `
+    <article class="card">
+      <div class="card-head">
+        <div>
+          <h3 class="card-title">📅 ${escapeHtml(item.title)}</h3>
+          <p class="card-subtitle">${escapeHtml(item.organizer || 'Groundwork')} · ${escapeHtml(item.sector)}</p>
+        </div>
+        <span class="event-chip">${escapeHtml(priceLabel)}</span>
+      </div>
+      <div class="card-meta">
+        <span>${escapeHtml(formatEventSchedule(item))}</span>
+        ${locationLine ? `<span>${escapeHtml(locationLine)}</span>` : ''}
+      </div>
+      ${item.note ? `<p class="card-subtitle">${escapeHtml(item.note)}</p>` : ''}
+      ${item.url ? `<div class="card-meta"><a href="${escapeAttribute(item.url)}" target="_blank" rel="noreferrer">Open source</a></div>` : ''}
+    </article>
+  `;
+}
+
+function getRenderableEvents() {
+  return deriveEvents().filter(item => {
+    if (Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng))) return true;
+    return false;
+  });
+}
+
+function normalizeEventRecord(event) {
+  const next = { ...event };
+  next.title = String(next.title || '').trim();
+  next.organizer = String(next.organizer || '').trim();
+  next.priceTier = String(next.priceTier || 'free').trim();
+  next.note = String(next.note || '').trim();
+  next.url = String(next.url || '').trim();
+  next.placeName = String(next.placeName || '').trim();
+  next.address = String(next.address || '').trim();
+  next.date = String(next.date || '').trim();
+  next.startTime = String(next.startTime || '').trim();
+  next.endTime = String(next.endTime || '').trim();
+  next.scheduleText = String(next.scheduleText || '').trim();
+  next.recurringDays = Array.isArray(next.recurringDays) ? next.recurringDays : [];
+  return next;
+}
+
+function resolveEventStart(event) {
+  if (event.date && event.startTime) return `${event.date}T${event.startTime}`;
+  if (event.date) return `${event.date}T00:00`;
+  if (event.recurringDays.length) {
+    return buildNextRecurringDateTime(event.recurringDays, event.startTime || '00:00');
+  }
+  return event.createdAt || new Date().toISOString();
+}
+
+function buildNextRecurringDateTime(daysOfWeek, timeText) {
+  const now = new Date();
+  const [h, m] = String(timeText || '00:00').split(':').map(Number);
+  for (let offset = 0; offset < 14; offset += 1) {
+    const candidate = new Date(now);
+    candidate.setDate(now.getDate() + offset);
+    candidate.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+    if (daysOfWeek.includes(candidate.getDay()) && candidate >= now) {
+      return candidate.toISOString();
+    }
+  }
+  return now.toISOString();
+}
+
+function formatEventSchedule(event) {
+  if (event.scheduleText) return event.scheduleText;
+  if (event.date && event.startTime && event.endTime) return `${formatDate(event.date)} · ${formatTimeText(event.startTime)}–${formatTimeText(event.endTime)}`;
+  if (event.date && event.startTime) return `${formatDate(event.date)} · ${formatTimeText(event.startTime)}`;
+  if (event.date) return formatDate(event.date);
+  if (event.recurringDays.length) return `Recurring · ${event.recurringDays.join(', ')}`;
+  return 'Schedule to be announced';
+}
+
+function formatTimeText(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const [hoursRaw, minutesRaw] = text.split(':').map(Number);
+  if (!Number.isFinite(hoursRaw) || !Number.isFinite(minutesRaw)) return text;
+  const period = hoursRaw >= 12 ? 'PM' : 'AM';
+  const hours = hoursRaw % 12 || 12;
+  return `${hours}:${String(minutesRaw).padStart(2, '0')} ${period}`;
 }
 
 function renderResourceCard(item) {
   const scopeLabel = item.groupId
     ? (state.groups.find(group => group.id === item.groupId)?.name || 'Group pin')
     : 'Public map';
+
+  const locationLine = [item.placeName, item.address].filter(Boolean).join(' · ');
 
   return `
     <article class="card">
@@ -1424,6 +2013,7 @@ function renderResourceCard(item) {
         <span class="resource-chip">${escapeHtml(item.resource)}</span>
       </div>
       <div class="card-meta">
+        ${locationLine ? `<span>${escapeHtml(locationLine)}</span>` : ''}
         <span>by ${escapeHtml(item.alias || 'Groundwork')}</span>
         <span>${formatDate(item.createdAt)}</span>
       </div>
@@ -1596,6 +2186,8 @@ function buildPlannerOutput(input) {
 function normalizeResourceRecord(resource) {
   const next = { ...resource };
 
+  next.placeName = String(next.placeName || '').trim();
+  next.address = String(next.address || '').trim();
   next.accessibility = {
     adaStatus: String(next.accessibility?.adaStatus || 'unknown'),
     wheelchairAccess: String(next.accessibility?.wheelchairAccess || 'unknown'),

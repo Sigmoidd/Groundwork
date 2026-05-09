@@ -836,11 +836,14 @@ function deriveResources() {
   return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-function deriveEvents() {
-  return state.events
+function deriveEvents(options = {}) {
+  const { includeExpired = false } = options;
+  const events = state.events
     .filter(event => event.kind === 'event.pin.add')
     .map(event => normalizeEventRecord({ ...event.payload, id: event.id, createdAt: event.createdAt }))
     .sort((a, b) => new Date(resolveEventStart(a)) - new Date(resolveEventStart(b)));
+
+  return includeExpired ? events : events.filter(item => !isEventExpired(item));
 }
 
 function deriveJobs() {
@@ -1001,20 +1004,21 @@ function resolveCoords(item) {
 function renderEvents() {
   const events = deriveEvents();
   const totals = countBy(events, item => item.priceTier || 'free');
-  const upcoming = getRenderableEvents();
+  const liveCount = events.filter(isEventLive).length;
+  const upcomingCount = events.filter(item => !isEventLive(item)).length;
 
   if (eventSummary) {
     eventSummary.innerHTML = [
-      `<span class="stat"><strong>${events.length}</strong> total events</span>`,
-      `<span class="stat"><strong>${upcoming.length}</strong> upcoming</span>`,
+      `<span class="stat"><strong>${events.length}</strong> active + upcoming</span>`,
+      `<span class="stat"><strong>${liveCount}</strong> live now</span>`,
+      `<span class="stat"><strong>${upcomingCount}</strong> upcoming</span>`,
       `<span class="stat"><strong>${totals['free'] || 0}</strong> free</span>`,
-      `<span class="stat"><strong>${totals['under-10'] || 0}</strong> under $10</span>`,
     ].join('');
   }
 
   if (!eventList) return;
   if (!events.length) {
-    eventList.innerHTML = '<div class="empty">No ephemeral events yet. Add one or load the BeHeard OKC seed.</div>';
+    eventList.innerHTML = '<div class="empty">No active or upcoming ephemeral events yet. Add one or load the BeHeard OKC seed.</div>';
     return;
   }
 
@@ -1708,16 +1712,16 @@ async function handleImport(event) {
 }
 
 async function seedBeHeardEvents() {
-  const existingTitles = new Set(deriveEvents().map(item => `${item.title}|${item.scheduleText || item.date || ''}`));
+  const existingTitles = new Set(deriveEvents({ includeExpired: true }).map(item => `${item.title}|${item.date}|${item.startTime}|${item.address}`));
   const seeds = [
     {
       title: 'BeHeard OKC outreach',
       organizer: 'BeHeard Movement',
       sector: 'Southside',
       priceTier: 'free',
-      placeName: '1725 SE 59th St outreach stop',
+      placeName: 'BeHeard OKC outreach stop',
       address: '1725 SE 59th St, Oklahoma City, OK',
-      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      note: 'Bring what you can. Rain may cancel outreach. Check organizer updates before heading out.',
       url: 'https://bhmovement.org/OKC',
       date: '2026-05-09',
       startTime: '10:00',
@@ -1729,9 +1733,9 @@ async function seedBeHeardEvents() {
       organizer: 'BeHeard Movement',
       sector: 'Plaza',
       priceTier: 'free',
-      placeName: '2605 N MacArthur Blvd outreach stop',
+      placeName: 'Second Chances Thrift',
       address: '2605 N MacArthur Blvd, Oklahoma City, OK',
-      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      note: 'Recurring BeHeard OKC stop. Rain may cancel outreach. Check organizer updates before heading out.',
       url: 'https://bhmovement.org/OKC',
       date: '2026-05-12',
       startTime: '10:00',
@@ -1741,11 +1745,11 @@ async function seedBeHeardEvents() {
     {
       title: 'BeHeard OKC outreach',
       organizer: 'BeHeard Movement',
-      sector: 'Plaza',
+      sector: 'Midtown',
       priceTier: 'free',
-      placeName: '1329 NW 23rd St outreach stop',
+      placeName: 'BeHeard OKC outreach stop',
       address: '1329 NW 23rd St, Oklahoma City, OK',
-      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      note: 'Rain may cancel outreach. Check organizer updates before heading out.',
       url: 'https://bhmovement.org/OKC',
       date: '2026-05-14',
       startTime: '10:00',
@@ -1757,9 +1761,9 @@ async function seedBeHeardEvents() {
       organizer: 'BeHeard Movement',
       sector: 'Southside',
       priceTier: 'free',
-      placeName: '11513 S Western Ave outreach stop',
+      placeName: 'BeHeard OKC outreach stop',
       address: '11513 S Western Ave, Oklahoma City, OK',
-      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      note: 'Rain may cancel outreach. Check organizer updates before heading out.',
       url: 'https://bhmovement.org/OKC',
       date: '2026-05-16',
       startTime: '10:00',
@@ -1771,9 +1775,9 @@ async function seedBeHeardEvents() {
       organizer: 'BeHeard Movement',
       sector: 'Plaza',
       priceTier: 'free',
-      placeName: '2605 N MacArthur Blvd outreach stop',
+      placeName: 'Second Chances Thrift',
       address: '2605 N MacArthur Blvd, Oklahoma City, OK',
-      note: 'BeHeard OKC outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      note: 'Recurring BeHeard OKC stop. Rain may cancel outreach. Check organizer updates before heading out.',
       url: 'https://bhmovement.org/OKC',
       date: '2026-05-19',
       startTime: '10:00',
@@ -1783,11 +1787,11 @@ async function seedBeHeardEvents() {
     {
       title: 'BeHeard OKC nighttime outreach',
       organizer: 'BeHeard Movement',
-      sector: 'Plaza',
+      sector: 'Midtown',
       priceTier: 'free',
-      placeName: '1329 NW 23rd St nighttime outreach',
+      placeName: 'BeHeard OKC outreach stop',
       address: '1329 NW 23rd St, Oklahoma City, OK',
-      note: 'BeHeard OKC nighttime outreach. Public schedule provided by user. If it rains, outreach may be canceled.',
+      note: 'Nighttime outreach. Rain may cancel outreach. Check organizer updates before heading out.',
       url: 'https://bhmovement.org/OKC',
       date: '2026-05-21',
       startTime: '15:00',
@@ -1798,7 +1802,8 @@ async function seedBeHeardEvents() {
 
   let added = 0;
   for (const seed of seeds) {
-    if (existingTitles.has(`${seed.title}|${seed.scheduleText || seed.date || ''}`)) continue;
+    const dedupeKey = `${seed.title}|${seed.date}|${seed.startTime}|${seed.address}`;
+    if (existingTitles.has(dedupeKey)) continue;
 
     let coords = null;
     if (seed.address || seed.placeName) {
@@ -1931,10 +1936,7 @@ function renderEventCard(item) {
 }
 
 function getRenderableEvents() {
-  return deriveEvents().filter(item => {
-    if (Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng))) return true;
-    return false;
-  });
+  return deriveEvents().filter(item => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)));
 }
 
 function normalizeEventRecord(event) {
@@ -1952,6 +1954,32 @@ function normalizeEventRecord(event) {
   next.scheduleText = String(next.scheduleText || '').trim();
   next.recurringDays = Array.isArray(next.recurringDays) ? next.recurringDays : [];
   return next;
+}
+
+function resolveEventEnd(event) {
+  if (event.date && event.endTime) return `${event.date}T${event.endTime}`;
+  if (event.date && event.startTime) return `${event.date}T${event.startTime}`;
+  if (event.date) return `${event.date}T23:59`;
+  if (event.recurringDays.length) {
+    const startIso = resolveEventStart(event);
+    const startDate = new Date(startIso);
+    const [endH, endM] = String(event.endTime || event.startTime || '00:00').split(':').map(Number);
+    startDate.setHours(Number.isFinite(endH) ? endH : startDate.getHours(), Number.isFinite(endM) ? endM : startDate.getMinutes(), 0, 0);
+    return startDate.toISOString();
+  }
+  return event.createdAt || new Date().toISOString();
+}
+
+function isEventExpired(event) {
+  const endIso = resolveEventEnd(event);
+  return new Date(endIso).getTime() < Date.now();
+}
+
+function isEventLive(event) {
+  const startIso = resolveEventStart(event);
+  const endIso = resolveEventEnd(event);
+  const now = Date.now();
+  return new Date(startIso).getTime() <= now && new Date(endIso).getTime() >= now;
 }
 
 function resolveEventStart(event) {

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Groundwork OKC</title>
-  <meta name="description" content="A local-first app for people, places, and recreation in Oklahoma City. Map water, restrooms, outlets, shade, gardens, fishing spots, and more.">
+  <meta name="description" content="Groundwork dignifies the city by making it legible to everyone who lives in it. Map water, restrooms, outlets, shade, gardens, fishing spots, and civic resources in Oklahoma City.">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="assets/styles.css">
 </head>
@@ -12,8 +12,8 @@
   <header class="topbar">
     <div>
       <p class="eyebrow">GROUNDWORK OKC</p>
-      <h1>People, places, and recreation.</h1>
-      <p class="lede">A local-first community map for water, restrooms, outlets, shade, gardens, fishing spots, and neighborhood jobs. Public pins live on the open map. Group submaps keep fishing crews, planting teams, and cleanup routes scoped to the people who need them.</p>
+      <h1>Groundwork dignifies the city.</h1>
+      <p class="lede">A local-first civic map for water, restrooms, outlets, shade, gardens, fishing spots, and neighborhood care in Oklahoma City. Public pins live on the open map. Group submaps keep fishing crews, planting teams, cleanup routes, and trusted networks scoped to the people who need them.</p>
     </div>
     <div class="hero-actions">
       <a class="button primary" href="#map">Open live map</a>
@@ -78,6 +78,7 @@
           <div id="resourceSummary" class="summary-strip"></div>
           <div id="mapCanvas" class="map-canvas" aria-label="Resource map"></div>
           <p class="help">Tap the map to set the resource location before posting, or use your current location. Post only public or permissioned resources.</p>
+          <p class="help">Pin scorecards now support accessibility details, confirmations, ratings, notes, and added photos locally in the browser.</p>
           <div id="resourceList" class="card-list" aria-live="polite"></div>
         </section>
 
@@ -127,6 +128,37 @@
                 <option value="permissioned">Permissioned</option>
               </select>
             </label>
+            <div class="location-grid">
+              <label>
+                ADA status
+                <select name="adaStatus">
+                  <option value="unknown">Unknown</option>
+                  <option value="ada-confirmed">ADA confirmed</option>
+                  <option value="partial">Partial / mixed</option>
+                  <option value="not-accessible">Not accessible</option>
+                </select>
+              </label>
+              <label>
+                Wheelchair reach
+                <select name="wheelchairAccess">
+                  <option value="unknown">Unknown</option>
+                  <option value="reachable">Reachable</option>
+                  <option value="limited">Limited</option>
+                  <option value="not-reachable">Not reachable</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              Path surface
+              <select name="pathSurface">
+                <option value="unknown">Unknown</option>
+                <option value="paved">Paved</option>
+                <option value="compacted">Compacted</option>
+                <option value="gravel">Gravel</option>
+                <option value="grass">Grass</option>
+                <option value="mixed">Mixed</option>
+              </select>
+            </label>
             <label>
               One sentence
               <input type="text" name="note" maxlength="140" placeholder="Water fountain outside west library doors" required>
@@ -153,6 +185,7 @@
             <div id="resourcePreview" class="preview hidden"></div>
             <button class="button primary" type="submit">Post pin</button>
             <p class="help">Public pins go on the open map. Group-scoped pins stay private on the relay and only appear for group members.</p>
+            <p class="help">Add accessibility fields now, then confirm, rate, note, and add more photos from each pin card after posting.</p>
           </form>
         </aside>
       </div>
@@ -489,9 +522,9 @@
             </div>
           </div>
           <div class="stack prose">
-            <p>Groundwork is a local-first app for people, places, and recreation in Oklahoma City.</p>
-            <p>The public map tracks water fountains, restrooms, outlets, shade, gardens, and fishing spots. Group submaps let fishing crews, planting teams, cleanup routes, and trusted networks share pins without exposing them to the open map.</p>
-            <p>Jobs post simple neighborhood tasks. The planner generates permaculture-minded planting guides. The inbox queues relay-ready private messages. Everything starts in your browser and syncs through community relays when you are ready.</p>
+            <p>Groundwork dignifies the city by making it legible to everyone who lives in it.</p>
+            <p>The public map tracks water fountains, restrooms, outlets, shade, gardens, fishing spots, and civic resources. Group submaps let fishing crews, planting teams, cleanup routes, and trusted networks share pins without exposing them to the open map.</p>
+            <p>Jobs post simple neighborhood tasks. The planner generates permaculture-minded planting guides. The inbox queues relay-ready private messages. Pin scorecards now carry accessibility details, confirmations, ratings, notes, and added photos locally first.</p>
           </div>
         </section>
 
@@ -506,6 +539,8 @@
             <li>Public map: water, restrooms, outlets, shade, gardens, fishing spots</li>
             <li>Group submaps: private scoped pins for crews and teams</li>
             <li>Tap-to-place or geolocated resource submission</li>
+            <li>Accessibility status: ADA, wheelchair reach, and path surface</li>
+            <li>Pin scorecards: confirmations, ratings, notes, and added photos</li>
             <li>Simple jobs with sentence, price, and optional photo</li>
             <li>Germinate / planting planner with permaculture guidance</li>
             <li>Trust phrase card and saved contacts</li>
@@ -522,5 +557,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="assets/app.js"></script>
+  <script src="assets/pins-plus.js"></script>
 </body>
 </html>

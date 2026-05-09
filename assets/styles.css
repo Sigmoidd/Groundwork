@@ -197,6 +197,44 @@ textarea { resize: vertical; }
   font-size: 0.92rem;
 }
 
+
+.neighborhood-carousel {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 14px;
+}
+
+.neighborhood-pill {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.03);
+  color: var(--muted);
+  padding: 10px 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.14s ease, transform 0.14s ease, background 0.14s ease;
+}
+
+.neighborhood-pill:hover,
+.neighborhood-pill:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--green);
+}
+
+.neighborhood-pill.is-active {
+  color: var(--text);
+  background: rgba(117, 196, 123, 0.12);
+  border-color: rgba(117, 196, 123, 0.28);
+}
+
+.neighborhood-pill small {
+  opacity: 0.8;
+  margin-left: 6px;
+}
+
 .map-toolbar, .summary-strip {
   display: flex;
   gap: 10px;

@@ -43,6 +43,17 @@ const SECTOR_COORDS = {
   'Southside': [35.4206, -97.5178],
 };
 
+const NEIGHBORHOOD_BOUNDS = {
+  'Paseo': { latDelta: 0.008, lngDelta: 0.012 },
+  'Plaza': { latDelta: 0.008, lngDelta: 0.012 },
+  'Midtown': { latDelta: 0.010, lngDelta: 0.014 },
+  'Downtown': { latDelta: 0.012, lngDelta: 0.016 },
+  'Innovation District': { latDelta: 0.010, lngDelta: 0.012 },
+  'Capitol Hill': { latDelta: 0.010, lngDelta: 0.014 },
+  'NE 23rd': { latDelta: 0.010, lngDelta: 0.018 },
+  'Southside': { latDelta: 0.014, lngDelta: 0.018 },
+};
+
 const RESOURCE_ICONS = {
   water: '💧',
   restroom: '🚻',
@@ -51,6 +62,8 @@ const RESOURCE_ICONS = {
   tree: '🍎',
   garden: '🪴',
   fishing: '🎣',
+  bike_rack: '🚲',
+  trash_can: '🗑️',
 };
 
 const state = loadState();
@@ -58,6 +71,7 @@ const state = loadState();
 let map = null;
 let markersLayer = null;
 let eventMarkersLayer = null;
+let neighborhoodPolygonsLayer = null;
 let pendingLocation = null;
 let pendingMarker = null;
 let currentThread = null;
@@ -90,6 +104,7 @@ const identityCard = document.getElementById('identityCard');
 const resourceSummary = document.getElementById('resourceSummary');
 const jobSummary = document.getElementById('jobSummary');
 const eventSummary = document.getElementById('eventSummary');
+const neighborhoodCarousel = document.getElementById('neighborhoodCarousel');
 const inboxSummary = document.getElementById('inboxSummary');
 const eventShape = document.getElementById('eventShape');
 const contactAliases = document.getElementById('contactAliases');
@@ -313,6 +328,17 @@ function wireForms() {
 
   resourceList?.addEventListener('click', handleResourceCardClick);
   resourceList?.addEventListener('change', handleResourceCardChange);
+
+  neighborhoodCarousel?.addEventListener('click', event => {
+    const button = event.target.closest('[data-sector-focus]');
+    if (!button || !sectorFilter) return;
+
+    const sector = button.dataset.sectorFocus || 'all';
+    sectorFilter.value = sector;
+    renderResources();
+    renderMap();
+    renderNeighborhoodCarousel();
+  });
 }
 
 function initMap() {
@@ -326,6 +352,8 @@ function initMap() {
   }).addTo(map);
 
   markersLayer = L.layerGroup().addTo(map);
+  eventMarkersLayer = L.layerGroup().addTo(map);
+  neighborhoodPolygonsLayer = L.layerGroup().addTo(map);
 
   map.on('click', async event => {
     pendingLocation = {
@@ -869,6 +897,7 @@ function deriveMessages() {
 
 function render() {
   populateScopeDropdowns();
+  renderNeighborhoodCarousel();
   renderResources();
   renderMap();
   renderJobs();
@@ -924,7 +953,8 @@ function renderResources() {
     `<span class="stat"><strong>${resources.length}</strong> pins in view</span>`,
     `<span class="stat"><strong>${totals.water || 0}</strong> water</span>`,
     `<span class="stat"><strong>${totals.restroom || 0}</strong> restrooms</span>`,
-    `<span class="stat"><strong>${totals.fishing || 0}</strong> fishing</span>`,
+    `<span class="stat"><strong>${totals.bike_rack || 0}</strong> bike racks</span>`,
+    `<span class="stat"><strong>${totals.trash_can || 0}</strong> trash cans</span>`,
     `<span class="stat"><strong>${verifiedCount}</strong> verified</span>`,
   ].join('');
 
@@ -942,16 +972,18 @@ function renderMap() {
 
   markersLayer.clearLayers();
   eventMarkersLayer.clearLayers();
+  neighborhoodPolygonsLayer?.clearLayers();
 
   const resources = getFilteredResources();
   const events = getRenderableEvents();
+  const bounds = [];
+
+  renderNeighborhoodPolygons();
 
   if (!resources.length && !events.length) {
     renderPendingMarker();
     return;
   }
-
-  const bounds = [];
 
   resources.forEach(item => {
     const [lat, lng] = resolveCoords(item);
@@ -991,6 +1023,71 @@ function renderMap() {
   }
 
   renderPendingMarker();
+}
+
+
+function renderNeighborhoodCarousel() {
+  if (!neighborhoodCarousel) return;
+
+  const activeSector = sectorFilter?.value || 'all';
+  const sectors = ['all', ...Object.keys(SECTOR_COORDS)];
+  const allResources = deriveResources();
+
+  neighborhoodCarousel.innerHTML = sectors.map(sector => {
+    const isActive = sector === activeSector;
+    const label = sector === 'all' ? 'All neighborhoods' : sector;
+    const count = sector === 'all'
+      ? allResources.length
+      : allResources.filter(item => item.sector === sector).length;
+
+    return `
+      <button
+        type="button"
+        class="neighborhood-pill ${isActive ? 'is-active' : ''}"
+        data-sector-focus="${escapeAttribute(sector)}"
+      >
+        ${escapeHtml(label)}
+        <small>${count}</small>
+      </button>
+    `;
+  }).join('');
+}
+
+function renderNeighborhoodPolygons() {
+  if (!map || !neighborhoodPolygonsLayer) return;
+
+  const activeSector = sectorFilter?.value || 'all';
+  const sectors = activeSector === 'all' ? Object.keys(SECTOR_COORDS) : [activeSector];
+
+  sectors.forEach(sector => {
+    const polygonPoints = buildNeighborhoodPolygon(sector);
+    if (!polygonPoints.length) return;
+
+    const polygon = L.polygon(polygonPoints, {
+      weight: 2,
+      opacity: 0.65,
+      fillOpacity: activeSector === 'all' ? 0.05 : 0.10,
+    });
+
+    polygon.bindTooltip(sector);
+    polygon.addTo(neighborhoodPolygonsLayer);
+  });
+}
+
+function buildNeighborhoodPolygon(sector) {
+  const center = SECTOR_COORDS[sector];
+  const bounds = NEIGHBORHOOD_BOUNDS[sector];
+  if (!center || !bounds) return [];
+
+  const [lat, lng] = center;
+  const { latDelta, lngDelta } = bounds;
+
+  return [
+    [lat + latDelta, lng - lngDelta],
+    [lat + latDelta, lng + lngDelta],
+    [lat - latDelta, lng + lngDelta],
+    [lat - latDelta, lng - lngDelta],
+  ];
 }
 
 function resolveCoords(item) {

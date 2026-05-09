@@ -62,6 +62,8 @@
               <option value="tree">Fruit / tree</option>
               <option value="garden">Garden / stewardship</option>
               <option value="fishing">Fishing spot</option>
+              <option value="bike_rack">Bike rack</option>
+              <option value="trash_can">Trash can</option>
             </select>
             <select id="sectorFilter">
               <option value="all">All sectors</option>
@@ -76,6 +78,7 @@
             </select>
           </div>
 
+          <div id="neighborhoodCarousel" class="neighborhood-carousel" aria-label="Neighborhoods"></div>
           <div id="resourceSummary" class="summary-strip"></div>
           <div id="mapCanvas" class="map-canvas" aria-label="Resource map"></div>
           <p class="help">Attach a point of interest by name or by street address, use the map/current location, or add a photo with EXIF GPS and let Groundwork fill the address natively. Groundwork stores the place label and address with the pin so people do not have to think in lat / long.</p>
@@ -101,6 +104,8 @@
                 <option value="tree">Fruit / tree</option>
                 <option value="garden">Garden / stewardship</option>
                 <option value="fishing">Fishing spot</option>
+                <option value="bike_rack">Bike rack</option>
+                <option value="trash_can">Trash can</option>
               </select>
             </label>
             <label>
@@ -633,7 +638,7 @@
             </div>
           </div>
           <ul class="checklist">
-            <li>Public map: water, restrooms, outlets, shade, gardens, fishing spots</li>
+            <li>Public map: water, restrooms, outlets, shade, gardens, fishing spots, bike racks, and trash cans</li>
             <li>Group submaps: private scoped pins for crews and teams</li>
             <li>Tap-to-place or geolocated resource submission</li>
             <li>Accessibility status: ADA, wheelchair reach, and path surface</li>

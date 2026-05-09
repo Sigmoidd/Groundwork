@@ -25,6 +25,7 @@
   <nav class="tabs" aria-label="Primary">
     <a href="#map" data-route="map" class="tab is-active">Map</a>
     <a href="#jobs" data-route="jobs" class="tab">Jobs</a>
+    <a href="#events" data-route="events" class="tab">Events</a>
     <a href="#planner" data-route="planner" class="tab">Planner</a>
     <a href="#groups" data-route="groups" class="tab">Groups</a>
     <a href="#secure" data-route="secure" class="tab">Secure</a>
@@ -77,7 +78,7 @@
 
           <div id="resourceSummary" class="summary-strip"></div>
           <div id="mapCanvas" class="map-canvas" aria-label="Resource map"></div>
-          <p class="help">Tap the map to set the resource location before posting, or use your current location. Post only public or permissioned resources.</p>
+          <p class="help">Attach a point of interest by name or by street address, use the map/current location, or add a photo with EXIF GPS and let Groundwork fill the address natively. Groundwork stores the place label and address with the pin so people do not have to think in lat / long.</p>
           <p class="help">Pin scorecards now support accessibility details, confirmations, ratings, notes, and added photos locally in the browser.</p>
           <div id="resourceList" class="card-list" aria-live="polite"></div>
         </section>
@@ -163,21 +164,21 @@
               One sentence
               <input type="text" name="note" maxlength="140" placeholder="Water fountain outside west library doors" required>
             </label>
-            <div class="location-grid">
-              <label>
-                Latitude
-                <input type="number" name="lat" step="0.000001" placeholder="35.4676">
-              </label>
-              <label>
-                Longitude
-                <input type="number" name="lng" step="0.000001" placeholder="-97.5164">
-              </label>
-            </div>
+            <label>
+              Attach a place or address
+              <input id="locationQueryInput" type="text" name="locationQuery" maxlength="160" placeholder="Homeless Alliance WestTown, Midtown Library, 1724 NW 4th St">
+            </label>
             <div class="inline-actions wrap">
+              <button class="button small" id="lookupLocationButton" type="button">Attach place</button>
               <button class="button small" id="pickMapLocationButton" type="button">Pick from map</button>
               <button class="button small" id="useLocationButton" type="button">Use current location</button>
               <button class="button small" id="clearLocationButton" type="button">Clear</button>
             </div>
+            <div id="selectedLocationCard" class="callout hidden" aria-live="polite"></div>
+            <input type="hidden" name="lat">
+            <input type="hidden" name="lng">
+            <input type="hidden" name="placeName">
+            <input type="hidden" name="address">
             <label>
               Optional photo
               <input type="file" name="photo" accept="image/*">
@@ -185,7 +186,7 @@
             <div id="resourcePreview" class="preview hidden"></div>
             <button class="button primary" type="submit">Post pin</button>
             <p class="help">Public pins go on the open map. Group-scoped pins stay private on the relay and only appear for group members.</p>
-            <p class="help">Add accessibility fields now, then confirm, rate, note, and add more photos from each pin card after posting.</p>
+            <p class="help">Search by name or address, or let a photo with EXIF GPS fill the place automatically. If no location is attached yet, Groundwork will ask for one on submit. After posting, people can confirm, rate, note, and attach more photos from each pin card.</p>
           </form>
         </aside>
       </div>
@@ -252,6 +253,102 @@
           </div>
           <div id="jobSummary" class="summary-strip"></div>
           <div id="jobList" class="card-list" aria-live="polite"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-events" class="view">
+      <div class="panel-grid two-up">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">EPHEMERAL EVENT PINS</p>
+              <h2>Add or seed a time-bound event</h2>
+            </div>
+          </div>
+          <form id="eventForm" class="stack" novalidate>
+            <label>
+              Title
+              <input type="text" name="title" maxlength="100" placeholder="BeHeard OKC outreach" required>
+            </label>
+            <div class="location-grid">
+              <label>
+                Organizer
+                <input type="text" name="organizer" maxlength="80" placeholder="BeHeard Movement">
+              </label>
+              <label>
+                Price tier
+                <select name="priceTier">
+                  <option value="free">Free</option>
+                  <option value="under-10">Under $10</option>
+                  <option value="paid">Paid</option>
+                </select>
+              </label>
+            </div>
+            <div class="location-grid">
+              <label>
+                Sector
+                <select name="sector" required>
+                  <option value="Paseo">Paseo</option>
+                  <option value="Plaza">Plaza</option>
+                  <option value="Midtown">Midtown</option>
+                  <option value="Downtown">Downtown</option>
+                  <option value="Innovation District">Innovation District</option>
+                  <option value="Capitol Hill">Capitol Hill</option>
+                  <option value="NE 23rd">NE 23rd</option>
+                  <option value="Southside">Southside</option>
+                </select>
+              </label>
+              <label>
+                Place or address
+                <input type="text" name="locationQuery" maxlength="160" placeholder="Second Chances Thrift, 2605 N MacArthur Blvd" required>
+              </label>
+            </div>
+            <div class="location-grid">
+              <label>
+                Date
+                <input type="date" name="date">
+              </label>
+              <label>
+                Link
+                <input type="url" name="url" placeholder="https://bhmovement.org/OKC">
+              </label>
+            </div>
+            <div class="location-grid">
+              <label>
+                Start time
+                <input type="time" name="startTime">
+              </label>
+              <label>
+                End time
+                <input type="time" name="endTime">
+              </label>
+            </div>
+            <label>
+              Note
+              <input type="text" name="note" maxlength="180" placeholder="Rain cancels. Outreach details may shift seasonally.">
+            </label>
+            <button class="button primary" type="submit">Post event</button>
+          </form>
+
+          <div class="callout">
+            <strong>Seed verified BeHeard OKC info</strong>
+            <p>Load the current BeHeard OKC outreach stops and times, then place them on the map as ephemeral events.</p>
+            <div class="inline-actions wrap">
+              <button class="button small" id="loadBeHeardEventsButton" type="button">Load BeHeard OKC events</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">ACTIVITY FEED</p>
+              <h2>Upcoming events</h2>
+            </div>
+          </div>
+          <div id="eventSummary" class="summary-strip"></div>
+          <div id="eventList" class="card-list" aria-live="polite"></div>
         </section>
       </div>
     </section>
@@ -556,6 +653,7 @@
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/exifr/dist/lite.umd.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>

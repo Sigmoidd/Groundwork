@@ -27,7 +27,7 @@ body {
 a { color: inherit; }
 button, input, select, textarea { font: inherit; }
 
-.topbar, .tabs, .shell {
+.topbar, .tabs, .sync-bar, .shell {
   width: min(1180px, calc(100% - 24px));
   margin: 0 auto;
 }
@@ -120,6 +120,28 @@ button, input, select, textarea { font: inherit; }
   padding: 10px 0 16px;
   overflow-x: auto;
 }
+
+.sync-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.sync-bar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.03);
+}
+
+.sync-bar strong { color: var(--text); }
 
 .tab {
   padding: 10px 16px;
@@ -324,6 +346,17 @@ textarea { resize: vertical; }
   border: 1px solid var(--border);
   color: var(--muted);
   font-size: 0.92rem;
+}
+
+.badge.working { border-color: rgba(117, 196, 123, 0.5); color: var(--green); }
+.badge.partial { border-color: rgba(213, 177, 74, 0.55); color: var(--gold); }
+.badge.not-working { border-color: rgba(227, 123, 123, 0.55); color: var(--danger); }
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 .badge strong, .stat strong { color: var(--text); }
 

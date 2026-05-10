@@ -12,8 +12,25 @@ const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 262144);
 const MAX_EVENT_BODY_BYTES = Number(process.env.MAX_EVENT_BODY_BYTES || 131072);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const RELAY_NAME = process.env.RELAY_NAME || 'Groundwork Relay';
-const PUBLIC_KINDS = new Set(['resource_pin', 'job_posted', 'planting_request']);
-const ALLOWED_KINDS = new Set(['resource_pin', 'job_posted', 'dm', 'planting_request']);
+const PUBLIC_KINDS = new Set([
+  'resource_pin',
+  'resource_pin_confirmed',
+  'resource_pin_rated',
+  'resource_pin_noted',
+  'resource_pin_photo_added',
+  'event_pin',
+  'job_posted',
+  'planting_request',
+  'resource.pin.add',
+  'resource.pin.confirmed',
+  'resource.pin.rated',
+  'resource.pin.noted',
+  'resource.pin.photo.added',
+  'resource.pin.seeded',
+  'event.pin.add',
+  'event.pin.expired'
+]);
+const ALLOWED_KINDS = new Set([...PUBLIC_KINDS, 'dm']);
 const subscribers = new Set();
 const bus = new EventEmitter();
 const events = [];

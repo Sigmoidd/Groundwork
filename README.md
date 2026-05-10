@@ -7,6 +7,7 @@ Static site bundle for Cloudflare Pages or GitHub Pages.
 - Real map pins with Leaflet + OpenStreetMap tiles
 - Better submit-a-resource flow with tap-to-place and geolocation
 - Relay write/pull sync for public events, group pins, and inbox messages
+- Public resource confirmations with recent community consensus
 - Germinate / planting planner using simple permaculture principles
 - Migration from prior `groundwork-okc-v1` local storage
 
@@ -18,4 +19,5 @@ Upload the contents of this folder or the zip archive to your Pages project.
 
 - This build is still local-first. Messages and pins are stored in the browser first, then synced through the configured relay.
 - The default relay is `https://relay.groundworkokc.org`.
+- Public pins and confirmations are mirrored through the relay so different browsers converge on the same map.
 - Use only public or permissioned resource pins.

@@ -6,7 +6,7 @@
   <title>Groundwork OKC</title>
   <meta name="description" content="Groundwork dignifies the city by making it legible to everyone who lives in it. Map water, restrooms, outlets, shade, gardens, fishing spots, and civic resources in Oklahoma City.">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="assets/styles.css">
+  <link rel="stylesheet" href="assets/styles.css?v=2026.05.09.1">
 </head>
 <body>
   <header class="topbar">
@@ -33,6 +33,13 @@
     <a href="#relays" data-route="relays" class="tab">Relays</a>
     <a href="#about" data-route="about" class="tab">About</a>
   </nav>
+
+  <div class="sync-bar" aria-live="polite">
+    <span>Build <strong id="buildVersion">2026.05.09.1</strong></span>
+    <span>Relay <strong id="relayStatus">starting</strong></span>
+    <span>Last synced <strong id="lastSynced">never</strong></span>
+    <button class="button small" id="syncNowButton" type="button">Sync now</button>
+  </div>
 
   <main class="shell">
     <section id="view-map" class="view is-active">
@@ -660,6 +667,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/exifr/dist/lite.umd.js"></script>
-  <script src="assets/app.js"></script>
+  <script src="assets/app.js?v=2026.05.09.1"></script>
 </body>
 </html>

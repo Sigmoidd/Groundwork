@@ -1,6 +1,7 @@
 
 const STORAGE_KEYS = ['groundwork-okc-v2', 'groundwork-okc-v1'];
 const ACTIVE_STORAGE_KEY = 'groundwork-okc-v2';
+const BUILD_ID = '2026.05.09.1';
 const DEFAULT_RELAYS = ['https://relay.groundworkokc.org'];
 const LEGACY_RELAYS = new Set(['wss://relay.example.org', 'http://3.148.240.58']);
 
@@ -26,6 +27,12 @@ const LOCAL_KIND_TO_RELAY = {
   'job.posted': 'job_posted',
   'planner.requested': 'planting_request',
   'dm.sent': 'dm',
+};
+
+const CONFIRM_STATUS = {
+  working: { score: 1, label: 'working' },
+  partial: { score: 0, label: 'partial' },
+  'not-working': { score: -1, label: 'not working' },
 };
 
 const TRUST_A = ['oak', 'cedar', 'elm', 'maple', 'sycamore', 'willow', 'juniper', 'birch'];
@@ -75,6 +82,11 @@ let neighborhoodPolygonsLayer = null;
 let pendingLocation = null;
 let pendingMarker = null;
 let currentThread = null;
+let syncInFlight = false;
+const syncState = {
+  status: 'starting',
+  lastSyncedAt: state.lastSyncedAt || '',
+};
 
 const routes = ['map', 'jobs', 'events', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
 const tabEls = Array.from(document.querySelectorAll('.tab'));
@@ -131,9 +143,14 @@ const loadBeHeardEventsButton = document.getElementById('loadBeHeardEventsButton
 const createGroupForm = document.getElementById('createGroupForm');
 const joinGroupForm = document.getElementById('joinGroupForm');
 const groupList = document.getElementById('groupList');
+const buildVersion = document.getElementById('buildVersion');
+const relayStatus = document.getElementById('relayStatus');
+const lastSynced = document.getElementById('lastSynced');
+const syncNowButton = document.getElementById('syncNowButton');
 
 wireRouting();
 wireForms();
+wireSyncTriggers();
 initMap();
 render();
 syncWithRelays();
@@ -160,6 +177,7 @@ function normalizeState(parsed) {
     groups: Array.isArray(parsed.groups) ? parsed.groups : [],
     relays: normalizeRelays(parsed.relays),
     events: Array.isArray(parsed.events) ? parsed.events : [],
+    lastSyncedAt: parsed.lastSyncedAt || '',
   };
 }
 
@@ -354,6 +372,14 @@ function wireForms() {
     renderEvents();
     renderNeighborhoodCarousel();
     renderNeighborhoodExploreView();
+  });
+}
+
+function wireSyncTriggers() {
+  syncNowButton?.addEventListener('click', () => syncWithRelays());
+  window.addEventListener('focus', () => syncWithRelays());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') syncWithRelays();
   });
 }
 
@@ -639,14 +665,18 @@ function buildTrustPhrase(seed) {
   ];
 }
 
-function appendEvent(kind, payload) {
+function appendEvent(kind, payload, options = {}) {
+  if (options.id) {
+    const existing = state.events.find(event => event.id === options.id);
+    if (existing) return existing;
+  }
   const prev = state.events.length ? state.events[state.events.length - 1].id : null;
   const event = {
-    id: crypto.randomUUID(),
+    id: options.id || crypto.randomUUID(),
     author: state.identity.deviceId,
     prev,
     kind,
-    createdAt: new Date().toISOString(),
+    createdAt: options.createdAt || new Date().toISOString(),
     payload,
   };
 
@@ -657,24 +687,35 @@ function appendEvent(kind, payload) {
 }
 
 async function syncWithRelays() {
-  if (!state.relays.length) return;
-  await pushEventsToRelays(state.events);
-  const changed = await pullEventsFromRelays();
-  if (changed) {
-    persist();
-    render();
+  if (!state.relays.length || syncInFlight) return;
+  syncInFlight = true;
+  setSyncStatus('syncing');
+  const pushOk = await pushEventsToRelays(state.events);
+  const pullResult = await pullEventsFromRelays();
+  if (pushOk && pullResult.ok) {
+    state.lastSyncedAt = new Date().toISOString();
+    syncState.lastSyncedAt = state.lastSyncedAt;
+    setSyncStatus('connected');
+  } else {
+    setSyncStatus('offline');
   }
+  if (pullResult.changed) render();
+  persist();
+  renderSyncBar();
+  syncInFlight = false;
 }
 
 async function pushEventsToRelays(events) {
   const relayEvents = events.map(toRelayEvent).filter(Boolean);
-  if (!relayEvents.length) return;
+  if (!relayEvents.length) return true;
+  let ok = true;
 
   for (const relayUrl of state.relays) {
     for (let index = 0; index < relayEvents.length; index += 100) {
-      await postRelayBatch(relayUrl, relayEvents.slice(index, index + 100));
+      ok = await postRelayBatch(relayUrl, relayEvents.slice(index, index + 100)) && ok;
     }
   }
+  return ok;
 }
 
 async function pushEventToRelays(event) {
@@ -687,7 +728,7 @@ async function pushEventToRelays(event) {
 }
 
 async function postRelayBatch(relayUrl, batch) {
-  if (!batch.length) return;
+  if (!batch.length) return true;
 
   try {
     const response = await fetch(`${cleanRelayUrl(relayUrl)}/v1/events`, {
@@ -697,13 +738,16 @@ async function postRelayBatch(relayUrl, batch) {
     });
 
     if (!response.ok) throw new Error(`Relay write failed: ${response.status}`);
+    return true;
   } catch (error) {
     console.warn(error);
+    return false;
   }
 }
 
 async function pullEventsFromRelays() {
   let changed = false;
+  let ok = true;
 
   for (const relayUrl of state.relays) {
     const queries = [
@@ -728,6 +772,7 @@ async function pullEventsFromRelays() {
         });
       } catch (error) {
         console.warn(error);
+        ok = false;
       }
     }
   }
@@ -736,7 +781,7 @@ async function pullEventsFromRelays() {
     state.events.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }
 
-  return changed;
+  return { changed, ok };
 }
 
 function toRelayEvent(event) {
@@ -809,6 +854,11 @@ function cleanRelayUrl(url) {
   return String(url || '').replace(/\/+$/, '');
 }
 
+function setSyncStatus(status) {
+  syncState.status = status;
+  renderSyncBar();
+}
+
 function deriveResources() {
   const resources = state.events
     .filter(event => event.kind === 'resource.pin.add')
@@ -829,10 +879,12 @@ function deriveResources() {
     const resource = byId.get(resourceId);
     if (!resource) return;
 
-    switch (event.kind) {
+      switch (event.kind) {
       case 'resource.pin.confirmed':
         resource.confirmations.push({
           alias: payload.alias || 'Local user',
+          identity: payload.identity || event.author,
+          status: CONFIRM_STATUS[payload.status] ? payload.status : 'working',
           at: event.createdAt,
         });
         resource.lastVerifiedAt = maxIsoTimestamp(resource.lastVerifiedAt, event.createdAt);
@@ -877,7 +929,42 @@ function deriveResources() {
     }
   });
 
+  byId.forEach(resource => {
+    resource.consensus = aggregateResourceConsensus(resource.confirmations);
+  });
+
   return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function aggregateResourceConsensus(confirmations) {
+  const latestByIdentity = new Map();
+  confirmations.forEach(entry => {
+    const identity = entry.identity || entry.alias || 'anonymous';
+    const previous = latestByIdentity.get(identity);
+    if (!previous || new Date(entry.at) > new Date(previous.at)) {
+      latestByIdentity.set(identity, entry);
+    }
+  });
+
+  const consensus = {
+    status: 'unknown',
+    score: 0,
+    total: latestByIdentity.size,
+    counts: { working: 0, partial: 0, 'not-working': 0 },
+  };
+
+  latestByIdentity.forEach(entry => {
+    const status = CONFIRM_STATUS[entry.status] ? entry.status : 'working';
+    const ageMs = Date.now() - new Date(entry.at).getTime();
+    const ageDays = Math.max(0, ageMs / 86_400_000);
+    const weight = ageDays <= 7 ? 1 : ageDays <= 30 ? 0.75 : ageDays <= 90 ? 0.5 : 0.25;
+    consensus.score += CONFIRM_STATUS[status].score * weight;
+    consensus.counts[status] += 1;
+  });
+
+  if (consensus.score >= 2) consensus.status = 'working';
+  else if (consensus.score <= -2) consensus.status = 'not-working';
+  return consensus;
 }
 
 function deriveEvents(options = {}) {
@@ -912,6 +999,7 @@ function deriveMessages() {
 }
 
 function render() {
+  renderSyncBar();
   populateScopeDropdowns();
   renderNeighborhoodCarousel();
   renderNeighborhoodExploreView();
@@ -926,6 +1014,12 @@ function render() {
   renderRelays();
   renderGroups();
   renderEventShape();
+}
+
+function renderSyncBar() {
+  if (buildVersion) buildVersion.textContent = BUILD_ID;
+  if (relayStatus) relayStatus.textContent = syncState.status;
+  if (lastSynced) lastSynced.textContent = syncState.lastSyncedAt ? formatRelative(syncState.lastSyncedAt) : 'never';
 }
 
 function populateScopeDropdowns() {
@@ -1528,7 +1622,8 @@ async function handleResourceSubmit(event) {
   resourcePreview.classList.add('hidden');
   renderResources();
   renderMap();
-  toastMessage('Pin posted locally.');
+  syncWithRelays();
+  toastMessage('Pin posted and syncing.');
 }
 
 async function handleEventSubmit(event) {
@@ -1580,7 +1675,8 @@ async function handleEventSubmit(event) {
   form.reset();
   renderEvents();
   renderMap();
-  toastMessage('Event posted locally.');
+  syncWithRelays();
+  toastMessage('Event posted and syncing.');
 }
 
 function handleResourceCardClick(event) {
@@ -1591,14 +1687,18 @@ function handleResourceCardClick(event) {
   const action = button.dataset.pinAction;
   if (!resourceId || !action) return;
 
-  if (action === 'confirm') {
+  if (action === 'confirm' || action === 'partial' || action === 'not-working') {
+    const status = action === 'confirm' ? 'working' : action;
     appendEvent('resource.pin.confirmed', {
       resourceId,
+      status,
+      identity: state.identity.deviceId,
       alias: state.identity.alias,
     });
     renderResources();
     renderMap();
-    toastMessage('Pin confirmed.');
+    syncWithRelays();
+    toastMessage(`Pin marked ${CONFIRM_STATUS[status].label}.`);
     return;
   }
 
@@ -2011,10 +2111,12 @@ async function seedBeHeardEvents() {
 
   renderEvents();
   renderMap();
+  await syncWithRelays();
   toastMessage(added ? `Loaded ${added} BeHeard OKC events.` : 'BeHeard OKC events already loaded.');
 }
 
 async function seedDemoData() {
+  await syncWithRelays();
   const existingNotes = new Set(deriveResources().map(item => item.note));
   const seeds = [
     {
@@ -2071,7 +2173,8 @@ async function seedDemoData() {
 
   let added = 0;
   for (const seed of seeds) {
-    if (existingNotes.has(seed.note)) continue;
+    const seedId = `seed:resource:${slugify(seed.placeName || seed.note)}:${seed.resource}`;
+    if (existingNotes.has(seed.note) || state.events.some(event => event.id === seedId)) continue;
 
     let coords = null;
     try {
@@ -2085,12 +2188,16 @@ async function seedDemoData() {
       ...seed,
       lat: coords ? coords[0] : (SECTOR_COORDS[seed.sector] || [35.4676, -97.5164])[0],
       lng: coords ? coords[1] : (SECTOR_COORDS[seed.sector] || [35.4676, -97.5164])[1],
+    }, {
+      id: seedId,
+      createdAt: '2026-05-09T00:00:00.000Z',
     });
     added += 1;
   }
 
   renderResources();
   renderMap();
+  await syncWithRelays();
   toastMessage(added ? `Loaded ${added} seed pins.` : 'Seed pins already loaded.');
 }
 
@@ -2259,6 +2366,7 @@ function decorateResourceCards(resources) {
 }
 
 function renderResourceScorecard(resource) {
+  const consensus = resource.consensus || { status: 'unknown', total: 0 };
   const ratingCount = resource.ratings.length;
   const averageRating = ratingCount
     ? (resource.ratings.reduce((sum, entry) => sum + Number(entry.score || 0), 0) / ratingCount).toFixed(1)
@@ -2283,11 +2391,11 @@ function renderResourceScorecard(resource) {
         </div>
 
         <div class="scorecard-block">
-          <span class="scorecard-label">Confirmations</span>
-          <div class="scorecard-value">${resource.confirmations.length}</div>
+          <span class="scorecard-label">Consensus</span>
+          <div class="scorecard-value">${escapeHtml(consensusLabel(consensus))}</div>
           <div class="scorecard-note">${
             resource.lastVerifiedAt
-              ? `Last verified ${escapeHtml(formatRelative(resource.lastVerifiedAt))}`
+              ? `${resource.confirmations.length} confirmation${resource.confirmations.length === 1 ? '' : 's'} · latest ${escapeHtml(formatRelative(resource.lastVerifiedAt))}`
               : 'No confirmations yet'
           }</div>
         </div>
@@ -2331,6 +2439,8 @@ function renderResourceScorecard(resource) {
 
       <div class="scorecard-actions">
         <button class="button small" type="button" data-pin-action="confirm" data-resource-id="${escapeAttribute(resource.id)}">Confirm working</button>
+        <button class="button small" type="button" data-pin-action="partial" data-resource-id="${escapeAttribute(resource.id)}">Partial</button>
+        <button class="button small" type="button" data-pin-action="not-working" data-resource-id="${escapeAttribute(resource.id)}">Not working</button>
         <button class="button small" type="button" data-pin-action="rate" data-resource-id="${escapeAttribute(resource.id)}">Rate pin</button>
         <button class="button small" type="button" data-pin-action="note" data-resource-id="${escapeAttribute(resource.id)}">Add note</button>
         <button class="button small" type="button" data-pin-action="photo" data-resource-id="${escapeAttribute(resource.id)}">Add photo</button>
@@ -2421,6 +2531,7 @@ function normalizeResourceRecord(resource) {
   next.comments = Array.isArray(next.comments) ? next.comments : [];
   next.photos = Array.isArray(next.photos) ? next.photos : [];
   next.lastVerifiedAt = next.lastVerifiedAt || null;
+  next.consensus = next.consensus || { status: 'unknown', score: 0, total: 0, counts: { working: 0, partial: 0, 'not-working': 0 } };
 
   return next;
 }
@@ -2501,6 +2612,13 @@ function maxIsoTimestamp(a, b) {
   return new Date(a) > new Date(b) ? a : b;
 }
 
+function consensusLabel(consensus) {
+  if (!consensus || !consensus.total) return 'unknown';
+  if (consensus.status === 'working') return 'working';
+  if (consensus.status === 'not-working') return 'not working';
+  return 'mixed';
+}
+
 function formatRelative(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'recently';
@@ -2566,4 +2684,12 @@ function capitalize(value) {
 
 function roundCoord(value) {
   return Math.round(Number(value) * 1_000_000) / 1_000_000;
+}
+
+function slugify(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80);
 }

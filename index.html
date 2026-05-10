@@ -9,21 +9,22 @@
   <link rel="stylesheet" href="assets/styles.css?v=2026.05.09.1">
 </head>
 <body>
-  <header class="topbar">
+  <header class="topbar appbar">
     <div>
       <p class="eyebrow">GROUNDWORK OKC</p>
-      <h1>Groundwork dignifies the city.</h1>
-      <p class="lede">A local-first civic map for water, restrooms, outlets, shade, gardens, fishing spots, and neighborhood care in Oklahoma City. Public pins live on the open map. Group submaps keep fishing crews, planting teams, cleanup routes, and trusted networks scoped to the people who need them.</p>
+      <h1>Oklahoma City</h1>
+      <p class="lede">Free things, civic basics, and what&rsquo;s happening nearby.</p>
     </div>
     <div class="hero-actions">
-      <a class="button primary" href="#map">Open live map</a>
-      <a class="button" href="#planner">Open planner</a>
-      <a class="button" href="#groups">Groups</a>
+      <a class="button primary" href="#explore">Explore</a>
+      <a class="button" href="#map">Map</a>
+      <a class="button" href="#secure">Me</a>
     </div>
   </header>
 
   <nav class="tabs" aria-label="Primary">
-    <a href="#map" data-route="map" class="tab is-active">Map</a>
+    <a href="#explore" data-route="explore" class="tab is-active">Explore</a>
+    <a href="#map" data-route="map" class="tab">Map</a>
     <a href="#jobs" data-route="jobs" class="tab">Jobs</a>
     <a href="#events" data-route="events" class="tab">Events</a>
     <a href="#planner" data-route="planner" class="tab">Planner</a>
@@ -42,7 +43,84 @@
   </div>
 
   <main class="shell">
-    <section id="view-map" class="view is-active">
+    <section id="view-explore" class="view is-active">
+      <section class="home-hero">
+        <p class="eyebrow">EXPLORE</p>
+        <h2 id="homeHeroTitle">Oklahoma City</h2>
+        <p id="homeHeroCopy">Free things, civic basics, and what&rsquo;s happening nearby.</p>
+      </section>
+
+      <section class="home-section">
+        <div id="homeNeighborhoodPills" class="home-neighborhood-pills" aria-label="Neighborhoods"></div>
+      </section>
+
+      <section class="home-section">
+        <div id="intentRows" class="intent-list" aria-label="Explore by intent"></div>
+      </section>
+
+      <section class="home-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">TOP PLANS</p>
+            <h2>Ready-made ways through the city</h2>
+          </div>
+        </div>
+        <div id="topPlansCarousel" class="plan-carousel"></div>
+      </section>
+
+      <section class="home-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">FEATURED EVENTS</p>
+            <h2>What&rsquo;s happening soon</h2>
+          </div>
+        </div>
+        <div id="featuredEvents" class="event-strip"></div>
+      </section>
+
+      <section class="home-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">CIVIC BASICS</p>
+            <h2>What can help right now</h2>
+          </div>
+        </div>
+        <div id="civicBasicsStrip" class="basics-strip"></div>
+      </section>
+
+      <section class="home-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">MAP PREVIEW</p>
+            <h2>Nearby shape of things</h2>
+          </div>
+          <a class="button small" href="#map">Open full map</a>
+        </div>
+        <div id="mapPreviewCanvas" class="map-preview" aria-label="Map preview"></div>
+      </section>
+
+      <section class="home-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">NEIGHBORHOODS</p>
+            <h2>Pick a place to wander</h2>
+          </div>
+        </div>
+        <div id="homeNeighborhoodCards" class="home-neighborhood-grid"></div>
+      </section>
+
+      <section class="home-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">RESOURCE FEED</p>
+            <h2>Proof-first details</h2>
+          </div>
+        </div>
+        <div id="homeResourceFeed" class="home-resource-feed"></div>
+      </section>
+    </section>
+
+    <section id="view-map" class="view">
       <div class="panel-grid">
         <section class="panel">
           <div class="panel-head">
@@ -662,6 +740,14 @@
       </div>
     </section>
   </main>
+
+  <nav class="bottom-nav" aria-label="Mobile primary">
+    <a href="#explore" data-route="explore">Explore</a>
+    <a href="#map" data-route="map">Map</a>
+    <a href="#planner" data-route="planner">Plans</a>
+    <a href="#relays" data-route="relays">Saved</a>
+    <a href="#secure" data-route="secure">Me</a>
+  </nav>
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 

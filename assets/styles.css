@@ -114,6 +114,11 @@ button, input, select, textarea { font: inherit; }
   border-color: var(--green-dark);
 }
 
+.button.danger {
+  border-color: rgba(227, 123, 123, 0.45);
+  color: var(--danger);
+}
+
 .button.small {
   padding: 8px 12px;
   font-size: 0.92rem;
@@ -806,6 +811,12 @@ textarea { resize: vertical; }
   .neighborhood-explore-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.photo-first input {
+  min-height: 64px;
+  border-style: dashed;
+  background: rgba(117, 196, 123, 0.08);
 }
 
 .bottom-nav { display: none; }

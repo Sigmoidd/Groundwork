@@ -180,6 +180,12 @@
             </div>
           </div>
           <form id="resourceForm" class="stack" novalidate>
+            <label class="photo-first">
+              Photo first
+              <input type="file" name="photo" accept="image/*" capture="environment">
+            </label>
+            <div id="resourcePreview" class="preview hidden"></div>
+            <p class="help">Take or add a photo first. If the image has location data, Groundwork will attach the place automatically.</p>
             <label>
               Resource type
               <select name="resource" required>
@@ -252,8 +258,8 @@
               </select>
             </label>
             <label>
-              One sentence
-              <input type="text" name="note" maxlength="140" placeholder="Water fountain outside west library doors" required>
+              Short caption
+              <input type="text" name="note" maxlength="140" placeholder="Water fountain outside west doors" required>
             </label>
             <label>
               Attach a place or address
@@ -270,14 +276,8 @@
             <input type="hidden" name="lng">
             <input type="hidden" name="placeName">
             <input type="hidden" name="address">
-            <label>
-              Optional photo
-              <input type="file" name="photo" accept="image/*">
-            </label>
-            <div id="resourcePreview" class="preview hidden"></div>
             <button class="button primary" type="submit">Post pin</button>
-            <p class="help">Public pins go on the open map. Group-scoped pins stay private on the relay and only appear for group members.</p>
-            <p class="help">Search by name or address, or let a photo with EXIF GPS fill the place automatically. If no location is attached yet, Groundwork will ask for one on submit. After posting, people can confirm, rate, note, and attach more photos from each pin card.</p>
+            <p class="help">Public pins go on the open map. Group-scoped pins stay private. After posting, you can edit or remove pins created by this device.</p>
           </form>
         </aside>
       </div>

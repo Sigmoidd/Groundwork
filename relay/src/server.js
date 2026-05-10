@@ -18,6 +18,8 @@ const PUBLIC_KINDS = new Set([
   'resource_pin_rated',
   'resource_pin_noted',
   'resource_pin_photo_added',
+  'resource_pin_updated',
+  'resource_pin_removed',
   'event_pin',
   'job_posted',
   'planting_request',

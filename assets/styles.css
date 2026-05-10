@@ -234,6 +234,72 @@ textarea { resize: vertical; }
   opacity: 0.8;
   margin-left: 6px;
 }
+.neighborhood-carousel.has-focus .neighborhood-pill:not(.is-active) {
+  opacity: 0.38;
+}
+
+.neighborhood-pill.is-dimmed {
+  opacity: 0.42;
+}
+
+.neighborhood-explore {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.neighborhood-explore-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.neighborhood-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  padding: 16px;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease, opacity 0.14s ease, filter 0.14s ease;
+}
+
+.neighborhood-card:hover,
+.neighborhood-card:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--green);
+}
+
+.neighborhood-card.is-active {
+  border-color: rgba(117, 196, 123, 0.28);
+  background: linear-gradient(180deg, rgba(117, 196, 123, 0.08), rgba(255,255,255,0.02));
+}
+
+.neighborhood-card.is-dimmed {
+  opacity: 0.35;
+  filter: saturate(0.55);
+}
+
+.neighborhood-card-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.neighborhood-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.neighborhood-card-copy {
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 0.92rem;
+}
+
 
 .map-toolbar, .summary-strip {
   display: flex;
@@ -547,7 +613,8 @@ textarea { resize: vertical; }
   }
   .map-canvas { height: 320px; }
   .scorecard-grid,
-  .pin-photo-grid {
+  .pin-photo-grid,
+  .neighborhood-explore-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -105,6 +105,7 @@ const resourceSummary = document.getElementById('resourceSummary');
 const jobSummary = document.getElementById('jobSummary');
 const eventSummary = document.getElementById('eventSummary');
 const neighborhoodCarousel = document.getElementById('neighborhoodCarousel');
+const neighborhoodExploreView = document.getElementById('neighborhoodExploreView');
 const inboxSummary = document.getElementById('inboxSummary');
 const eventShape = document.getElementById('eventShape');
 const contactAliases = document.getElementById('contactAliases');
@@ -337,7 +338,22 @@ function wireForms() {
     sectorFilter.value = sector;
     renderResources();
     renderMap();
+    renderEvents();
     renderNeighborhoodCarousel();
+    renderNeighborhoodExploreView();
+  });
+
+  neighborhoodExploreView?.addEventListener('click', event => {
+    const card = event.target.closest('[data-sector-focus]');
+    if (!card || !sectorFilter) return;
+
+    const sector = card.dataset.sectorFocus || 'all';
+    sectorFilter.value = sector;
+    renderResources();
+    renderMap();
+    renderEvents();
+    renderNeighborhoodCarousel();
+    renderNeighborhoodExploreView();
   });
 }
 
@@ -898,6 +914,7 @@ function deriveMessages() {
 function render() {
   populateScopeDropdowns();
   renderNeighborhoodCarousel();
+  renderNeighborhoodExploreView();
   renderResources();
   renderMap();
   renderJobs();
@@ -1032,41 +1049,105 @@ function renderNeighborhoodCarousel() {
   const activeSector = sectorFilter?.value || 'all';
   const sectors = ['all', ...Object.keys(SECTOR_COORDS)];
   const allResources = deriveResources();
+  const allEvents = deriveEvents({ includeExpired: false });
+  const hasFocus = activeSector !== 'all';
 
+  neighborhoodCarousel.classList.toggle('has-focus', hasFocus);
   neighborhoodCarousel.innerHTML = sectors.map(sector => {
     const isActive = sector === activeSector;
     const label = sector === 'all' ? 'All neighborhoods' : sector;
-    const count = sector === 'all'
+    const resourceCount = sector === 'all'
       ? allResources.length
       : allResources.filter(item => item.sector === sector).length;
+    const eventCount = sector === 'all'
+      ? allEvents.length
+      : allEvents.filter(item => item.sector === sector).length;
 
     return `
       <button
         type="button"
-        class="neighborhood-pill ${isActive ? 'is-active' : ''}"
+        class="neighborhood-pill ${isActive ? 'is-active' : ''} ${hasFocus && !isActive ? 'is-dimmed' : ''}"
         data-sector-focus="${escapeAttribute(sector)}"
       >
         ${escapeHtml(label)}
-        <small>${count}</small>
+        <small>${resourceCount} pins · ${eventCount} events</small>
       </button>
     `;
   }).join('');
+}
+
+function renderNeighborhoodExploreView() {
+  if (!neighborhoodExploreView) return;
+
+  const activeSector = sectorFilter?.value || 'all';
+  const sectors = Object.keys(SECTOR_COORDS);
+  const resources = deriveResources();
+  const events = deriveEvents({ includeExpired: false });
+  const hasFocus = activeSector !== 'all';
+
+  const ordered = hasFocus
+    ? [activeSector, ...sectors.filter(sector => sector !== activeSector)]
+    : sectors;
+
+  neighborhoodExploreView.innerHTML = `
+    <div class="neighborhood-explore-grid">
+      ${ordered.map(sector => {
+        const resourceCount = resources.filter(item => item.sector === sector).length;
+        const eventCount = events.filter(item => item.sector === sector).length;
+        const topResources = resources.filter(item => item.sector === sector).slice(0, 2);
+        const topEvents = events.filter(item => item.sector === sector).slice(0, 1);
+        const isActive = sector === activeSector;
+
+        return `
+          <article
+            class="neighborhood-card ${isActive ? 'is-active' : ''} ${hasFocus && !isActive ? 'is-dimmed' : ''}"
+            data-sector-focus="${escapeAttribute(sector)}"
+            tabindex="0"
+          >
+            <div>
+              <h3 class="neighborhood-card-title">${escapeHtml(sector)}</h3>
+              <div class="neighborhood-card-meta">
+                <span>${resourceCount} pins</span>
+                <span>${eventCount} events</span>
+              </div>
+            </div>
+            <p class="neighborhood-card-copy">${escapeHtml(buildNeighborhoodSummary(sector, topResources, topEvents))}</p>
+            <div class="card-meta">
+              <span>${topResources.length ? topResources.map(item => item.note).join(' · ') : 'Explore this neighborhood'}</span>
+            </div>
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function buildNeighborhoodSummary(sector, topResources, topEvents) {
+  const resourceText = topResources.length
+    ? `Pins include ${topResources.map(item => item.resource.replace('_', ' ')).join(', ')}.`
+    : 'No pins yet.';
+  const eventText = topEvents.length
+    ? ` Next event: ${topEvents[0].title}.`
+    : ' No upcoming events yet.';
+  return `${sector} focus.${resourceText}${eventText}`;
 }
 
 function renderNeighborhoodPolygons() {
   if (!map || !neighborhoodPolygonsLayer) return;
 
   const activeSector = sectorFilter?.value || 'all';
-  const sectors = activeSector === 'all' ? Object.keys(SECTOR_COORDS) : [activeSector];
+  const hasFocus = activeSector !== 'all';
+  const sectors = Object.keys(SECTOR_COORDS);
 
   sectors.forEach(sector => {
     const polygonPoints = buildNeighborhoodPolygon(sector);
     if (!polygonPoints.length) return;
 
+    const isActive = sector === activeSector || !hasFocus;
     const polygon = L.polygon(polygonPoints, {
-      weight: 2,
-      opacity: 0.65,
-      fillOpacity: activeSector === 'all' ? 0.05 : 0.10,
+      weight: isActive && hasFocus ? 3 : 2,
+      opacity: isActive ? 0.75 : 0.22,
+      fillOpacity: isActive ? (hasFocus ? 0.16 : 0.06) : 0.03,
     });
 
     polygon.bindTooltip(sector);
@@ -1099,10 +1180,11 @@ function resolveCoords(item) {
 }
 
 function renderEvents() {
-  const events = deriveEvents();
+  const events = getFilteredEvents();
   const totals = countBy(events, item => item.priceTier || 'free');
   const liveCount = events.filter(isEventLive).length;
   const upcomingCount = events.filter(item => !isEventLive(item)).length;
+  const focusedSector = getFocusedSector();
 
   if (eventSummary) {
     eventSummary.innerHTML = [
@@ -1110,12 +1192,15 @@ function renderEvents() {
       `<span class="stat"><strong>${liveCount}</strong> live now</span>`,
       `<span class="stat"><strong>${upcomingCount}</strong> upcoming</span>`,
       `<span class="stat"><strong>${totals['free'] || 0}</strong> free</span>`,
-    ].join('');
+      focusedSector ? `<span class="stat"><strong>${escapeHtml(focusedSector)}</strong> focus</span>` : ''
+    ].filter(Boolean).join('');
   }
 
   if (!eventList) return;
   if (!events.length) {
-    eventList.innerHTML = '<div class="empty">No active or upcoming ephemeral events yet. Add one or load the BeHeard OKC seed.</div>';
+    eventList.innerHTML = focusedSector
+      ? `<div class="empty">No active or upcoming events in ${escapeHtml(focusedSector)} yet.</div>`
+      : '<div class="empty">No active or upcoming ephemeral events yet. Add one or load the BeHeard OKC seed.</div>';
     return;
   }
 
@@ -2032,9 +2117,21 @@ function renderEventCard(item) {
   `;
 }
 
-function getRenderableEvents() {
-  return deriveEvents().filter(item => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)));
+function getFocusedSector() {
+  const value = sectorFilter?.value || 'all';
+  return value === 'all' ? null : value;
 }
+
+function getFilteredEvents(options = {}) {
+  const focusedSector = getFocusedSector();
+  const events = deriveEvents(options);
+  return focusedSector ? events.filter(item => item.sector === focusedSector) : events;
+}
+
+function getRenderableEvents() {
+  return getFilteredEvents().filter(item => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng)));
+}
+
 
 function normalizeEventRecord(event) {
   const next = { ...event };

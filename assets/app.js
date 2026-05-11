@@ -1,7 +1,6 @@
 
 const STORAGE_KEYS = ['groundwork-okc-v2', 'groundwork-okc-v1'];
 const ACTIVE_STORAGE_KEY = 'groundwork-okc-v2';
-const BUILD_ID = '2026.05.09.1';
 const DEFAULT_RELAYS = ['https://relay.groundworkokc.org'];
 const LEGACY_RELAYS = new Set(['wss://relay.example.org', 'http://3.148.240.58']);
 
@@ -11,8 +10,6 @@ const RELAY_KIND_TO_LOCAL = {
   resource_pin_rated: 'resource.pin.rated',
   resource_pin_noted: 'resource.pin.noted',
   resource_pin_photo_added: 'resource.pin.photo.added',
-  resource_pin_updated: 'resource.pin.updated',
-  resource_pin_removed: 'resource.pin.removed',
   event_pin: 'event.pin.add',
   job_posted: 'job.posted',
   planting_request: 'planner.requested',
@@ -25,18 +22,10 @@ const LOCAL_KIND_TO_RELAY = {
   'resource.pin.rated': 'resource_pin_rated',
   'resource.pin.noted': 'resource_pin_noted',
   'resource.pin.photo.added': 'resource_pin_photo_added',
-  'resource.pin.updated': 'resource_pin_updated',
-  'resource.pin.removed': 'resource_pin_removed',
   'event.pin.add': 'event_pin',
   'job.posted': 'job_posted',
   'planner.requested': 'planting_request',
   'dm.sent': 'dm',
-};
-
-const CONFIRM_STATUS = {
-  working: { score: 1, label: 'working' },
-  partial: { score: 0, label: 'partial' },
-  'not-working': { score: -1, label: 'not working' },
 };
 
 const TRUST_A = ['oak', 'cedar', 'elm', 'maple', 'sycamore', 'willow', 'juniper', 'birch'];
@@ -77,27 +66,65 @@ const RESOURCE_ICONS = {
   trash_can: '🗑️',
 };
 
+
+const NEIGHBORHOOD_MEDIA = {
+  'Downtown': {
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,h_800,q_65,w_639/v1/clients/oklahoma/DJI_0038_Enhanced_NR_9828fabc-3956-4192-b353-a1bbf8313248.jpg',
+    vibe: 'Streetcar loops, skyline energy, and easy downtown plans.'
+  },
+  'Midtown': {
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,g_xy_center,h_800,q_65,w_639,x_3680,y_2456/v1/clients/oklahoma/DSC_1270_e95c8055-096e-4d2b-bcd3-2a897f306cd1.jpg',
+    vibe: 'Patios, books, coffee, and walkable stops.'
+  },
+  'Paseo': {
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,g_xy_center,h_800,q_65,w_639,x_1638,y_1967/v1/clients/oklahoma/18_OKC_035_Gen_Paseo_15_31b587ed-3b29-470c-89ce-419daaa51ae4.jpg',
+    vibe: 'Color, galleries, and slow wandering.'
+  },
+  'Plaza': {
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,h_800,q_65,w_639/v1/clients/oklahoma/IMG_1680_d0adf718-11e0-48ae-9564-ac90d566f789.jpg',
+    vibe: 'Festival fun, murals, and a little grit.'
+  },
+  'Capitol Hill': {
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,g_xy_center,h_800,q_65,w_639,x_3232,y_1676/v1/clients/oklahoma/221001_Fiesta_de_las_Americas_2022_Josh_Vaughn_9218_f04cb92d-0168-457f-b62a-12c4b20f7177.jpg',
+    vibe: 'Culture, murals, and Calle Dos Cinco energy.'
+  },
+  'NE 23rd': {
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,h_800,q_65,w_639/v1/clients/oklahoma/Juneteenth_2023_Credit_Tyler_Stark_6_32bad4f4-119e-4350-abbe-efd0b37eb880.jpg',
+    vibe: 'East End culture, books, coffee, and community events.'
+  },
+  'Southside': {
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,g_xy_center,h_800,q_65,w_639,x_3232,y_1676/v1/clients/oklahoma/221001_Fiesta_de_las_Americas_2022_Josh_Vaughn_9218_f04cb92d-0168-457f-b62a-12c4b20f7177.jpg',
+    vibe: 'Neighborhood rhythm, practical stops, and community care.'
+  },
+  'Innovation District': {
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,g_xy_center,h_800,q_65,w_639,x_3680,y_2456/v1/clients/oklahoma/DSC_1270_e95c8055-096e-4d2b-bcd3-2a897f306cd1.jpg',
+    vibe: 'Campus energy, new builds, and easy daytime hangs.'
+  },
+  'all': {
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,h_800,q_65,w_639/v1/clients/oklahoma/DJI_0038_Enhanced_NR_9828fabc-3956-4192-b353-a1bbf8313248.jpg',
+    vibe: 'Free things, civic basics, and what is happening nearby.'
+  }
+};
+
+const INTENT_OPTIONS = [
+  { id: 'all', title: 'Everything', copy: 'Show the full neighborhood mix.' },
+  { id: 'entertainment', title: 'Entertainment', copy: 'Fun hangs, outings, and scenic stops.' },
+  { id: 'interaction', title: 'Interaction', copy: 'Groups, events, and places people gather.' },
+  { id: 'purpose', title: 'Purpose', copy: 'Mutual aid, stewardship, and useful next moves.' },
+];
+
 const state = loadState();
 
 let map = null;
-let homeMap = null;
 let markersLayer = null;
-let homeMarkersLayer = null;
 let eventMarkersLayer = null;
-let homeEventMarkersLayer = null;
 let neighborhoodPolygonsLayer = null;
-let homeNeighborhoodPolygonsLayer = null;
 let pendingLocation = null;
 let pendingMarker = null;
 let currentThread = null;
-let editingResourceId = null;
-let syncInFlight = false;
-const syncState = {
-  status: 'starting',
-  lastSyncedAt: state.lastSyncedAt || '',
-};
+let activeIntent = 'all';
 
-const routes = ['explore', 'map', 'jobs', 'events', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
+const routes = ['map', 'jobs', 'events', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
 const tabEls = Array.from(document.querySelectorAll('.tab'));
 const viewEls = routes.reduce((acc, route) => {
   acc[route] = document.getElementById(`view-${route}`);
@@ -127,6 +154,12 @@ const jobSummary = document.getElementById('jobSummary');
 const eventSummary = document.getElementById('eventSummary');
 const neighborhoodCarousel = document.getElementById('neighborhoodCarousel');
 const neighborhoodExploreView = document.getElementById('neighborhoodExploreView');
+const cityStageCard = document.getElementById('cityStageCard');
+const cityStagePhoto = document.getElementById('cityStagePhoto');
+const cityHeroTitle = document.getElementById('cityHeroTitle');
+const cityHeroCopy = document.getElementById('cityHeroCopy');
+const intentRows = document.getElementById('intentRows');
+const topPlansStrip = document.getElementById('topPlansStrip');
 const inboxSummary = document.getElementById('inboxSummary');
 const eventShape = document.getElementById('eventShape');
 const contactAliases = document.getElementById('contactAliases');
@@ -152,24 +185,9 @@ const loadBeHeardEventsButton = document.getElementById('loadBeHeardEventsButton
 const createGroupForm = document.getElementById('createGroupForm');
 const joinGroupForm = document.getElementById('joinGroupForm');
 const groupList = document.getElementById('groupList');
-const buildVersion = document.getElementById('buildVersion');
-const relayStatus = document.getElementById('relayStatus');
-const lastSynced = document.getElementById('lastSynced');
-const syncNowButton = document.getElementById('syncNowButton');
-const homeHeroTitle = document.getElementById('homeHeroTitle');
-const homeHeroCopy = document.getElementById('homeHeroCopy');
-const homeNeighborhoodPills = document.getElementById('homeNeighborhoodPills');
-const intentRows = document.getElementById('intentRows');
-const topPlansCarousel = document.getElementById('topPlansCarousel');
-const featuredEvents = document.getElementById('featuredEvents');
-const civicBasicsStrip = document.getElementById('civicBasicsStrip');
-const mapPreviewCanvas = document.getElementById('mapPreviewCanvas');
-const homeNeighborhoodCards = document.getElementById('homeNeighborhoodCards');
-const homeResourceFeed = document.getElementById('homeResourceFeed');
 
 wireRouting();
 wireForms();
-wireSyncTriggers();
 initMap();
 render();
 syncWithRelays();
@@ -196,7 +214,6 @@ function normalizeState(parsed) {
     groups: Array.isArray(parsed.groups) ? parsed.groups : [],
     relays: normalizeRelays(parsed.relays),
     events: Array.isArray(parsed.events) ? parsed.events : [],
-    lastSyncedAt: parsed.lastSyncedAt || '',
   };
 }
 
@@ -220,18 +237,14 @@ function wireRouting() {
 }
 
 function syncRouteFromHash() {
-  const route = (window.location.hash || '#explore').replace('#', '');
-  const safeRoute = routes.includes(route) ? route : 'explore';
+  const route = (window.location.hash || '#map').replace('#', '');
+  const safeRoute = routes.includes(route) ? route : 'map';
 
   tabEls.forEach(tab => tab.classList.toggle('is-active', tab.dataset.route === safeRoute));
-  document.querySelectorAll('.bottom-nav [data-route]').forEach(tab => tab.classList.toggle('is-active', tab.dataset.route === safeRoute));
   Object.entries(viewEls).forEach(([name, el]) => el.classList.toggle('is-active', name === safeRoute));
 
   if (safeRoute === 'map' && map) {
     setTimeout(() => map.invalidateSize(), 50);
-  }
-  if (safeRoute === 'explore' && homeMap) {
-    setTimeout(() => homeMap.invalidateSize(), 50);
   }
 }
 
@@ -370,11 +383,6 @@ function wireForms() {
 
   resourceList?.addEventListener('click', handleResourceCardClick);
   resourceList?.addEventListener('change', handleResourceCardChange);
-  homeResourceFeed?.addEventListener('click', handleResourceCardClick);
-  homeResourceFeed?.addEventListener('change', handleResourceCardChange);
-  homeNeighborhoodPills?.addEventListener('click', handleHomeSectorClick);
-  homeNeighborhoodCards?.addEventListener('click', handleHomeSectorClick);
-  intentRows?.addEventListener('click', handleIntentClick);
 
   neighborhoodCarousel?.addEventListener('click', event => {
     const button = event.target.closest('[data-sector-focus]');
@@ -395,38 +403,46 @@ function wireForms() {
 
     const sector = card.dataset.sectorFocus || 'all';
     sectorFilter.value = sector;
+    renderCityStage();
+    renderIntentRows();
+    renderTopPlans();
     renderResources();
     renderMap();
     renderEvents();
     renderNeighborhoodCarousel();
     renderNeighborhoodExploreView();
   });
-}
 
-function wireSyncTriggers() {
-  syncNowButton?.addEventListener('click', () => syncWithRelays());
-  window.addEventListener('focus', () => syncWithRelays());
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') syncWithRelays();
+  intentRows?.addEventListener('click', event => {
+    const button = event.target.closest('[data-intent]');
+    if (!button) return;
+    activeIntent = button.dataset.intent || 'all';
+    renderCityStage();
+    renderIntentRows();
+    renderTopPlans();
+    renderNeighborhoodExploreView();
   });
-}
 
-function handleHomeSectorClick(event) {
-  const target = event.target.closest('[data-home-sector]');
-  if (!target || !sectorFilter) return;
-  const current = sectorFilter.value || 'all';
-  const next = target.dataset.homeSector || 'all';
-  sectorFilter.value = current === next && next !== 'all' ? 'all' : next;
-  render();
-}
+  topPlansStrip?.addEventListener('click', event => {
+    const card = event.target.closest('[data-sector-focus], [data-plan-intent]');
+    if (!card) return;
 
-function handleIntentClick(event) {
-  const target = event.target.closest('[data-intent]');
-  if (!target) return;
-  const intent = target.dataset.intent;
-  if (intent === 'basics') window.location.hash = '#map';
-  if (intent === 'today' || intent === 'free' || intent === 'mutual-aid') window.location.hash = '#events';
-  if (intent === 'bike' || intent === 'accessible' || intent === 'kid') window.location.hash = '#map';
+    if (card.dataset.sectorFocus && sectorFilter) {
+      sectorFilter.value = card.dataset.sectorFocus || 'all';
+    }
+    if (card.dataset.planIntent) {
+      activeIntent = card.dataset.planIntent || 'all';
+    }
+
+    renderCityStage();
+    renderIntentRows();
+    renderTopPlans();
+    renderResources();
+    renderMap();
+    renderEvents();
+    renderNeighborhoodCarousel();
+    renderNeighborhoodExploreView();
+  });
 }
 
 function initMap() {
@@ -442,23 +458,6 @@ function initMap() {
   markersLayer = L.layerGroup().addTo(map);
   eventMarkersLayer = L.layerGroup().addTo(map);
   neighborhoodPolygonsLayer = L.layerGroup().addTo(map);
-
-  if (mapPreviewCanvas) {
-    homeMap = L.map('mapPreviewCanvas', {
-      scrollWheelZoom: false,
-      dragging: false,
-      zoomControl: false,
-      doubleClickZoom: false,
-      boxZoom: false,
-    }).setView([35.4676, -97.5164], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(homeMap);
-    homeMarkersLayer = L.layerGroup().addTo(homeMap);
-    homeEventMarkersLayer = L.layerGroup().addTo(homeMap);
-    homeNeighborhoodPolygonsLayer = L.layerGroup().addTo(homeMap);
-  }
 
   map.on('click', async event => {
     pendingLocation = {
@@ -728,18 +727,14 @@ function buildTrustPhrase(seed) {
   ];
 }
 
-function appendEvent(kind, payload, options = {}) {
-  if (options.id) {
-    const existing = state.events.find(event => event.id === options.id);
-    if (existing) return existing;
-  }
+function appendEvent(kind, payload) {
   const prev = state.events.length ? state.events[state.events.length - 1].id : null;
   const event = {
-    id: options.id || crypto.randomUUID(),
+    id: crypto.randomUUID(),
     author: state.identity.deviceId,
     prev,
     kind,
-    createdAt: options.createdAt || new Date().toISOString(),
+    createdAt: new Date().toISOString(),
     payload,
   };
 
@@ -750,35 +745,24 @@ function appendEvent(kind, payload, options = {}) {
 }
 
 async function syncWithRelays() {
-  if (!state.relays.length || syncInFlight) return;
-  syncInFlight = true;
-  setSyncStatus('syncing');
-  const pushOk = await pushEventsToRelays(state.events);
-  const pullResult = await pullEventsFromRelays();
-  if (pushOk && pullResult.ok) {
-    state.lastSyncedAt = new Date().toISOString();
-    syncState.lastSyncedAt = state.lastSyncedAt;
-    setSyncStatus('connected');
-  } else {
-    setSyncStatus('offline');
+  if (!state.relays.length) return;
+  await pushEventsToRelays(state.events);
+  const changed = await pullEventsFromRelays();
+  if (changed) {
+    persist();
+    render();
   }
-  if (pullResult.changed) render();
-  persist();
-  renderSyncBar();
-  syncInFlight = false;
 }
 
 async function pushEventsToRelays(events) {
   const relayEvents = events.map(toRelayEvent).filter(Boolean);
-  if (!relayEvents.length) return true;
-  let ok = true;
+  if (!relayEvents.length) return;
 
   for (const relayUrl of state.relays) {
     for (let index = 0; index < relayEvents.length; index += 100) {
-      ok = await postRelayBatch(relayUrl, relayEvents.slice(index, index + 100)) && ok;
+      await postRelayBatch(relayUrl, relayEvents.slice(index, index + 100));
     }
   }
-  return ok;
 }
 
 async function pushEventToRelays(event) {
@@ -791,7 +775,7 @@ async function pushEventToRelays(event) {
 }
 
 async function postRelayBatch(relayUrl, batch) {
-  if (!batch.length) return true;
+  if (!batch.length) return;
 
   try {
     const response = await fetch(`${cleanRelayUrl(relayUrl)}/v1/events`, {
@@ -801,16 +785,13 @@ async function postRelayBatch(relayUrl, batch) {
     });
 
     if (!response.ok) throw new Error(`Relay write failed: ${response.status}`);
-    return true;
   } catch (error) {
     console.warn(error);
-    return false;
   }
 }
 
 async function pullEventsFromRelays() {
   let changed = false;
-  let ok = true;
 
   for (const relayUrl of state.relays) {
     const queries = [
@@ -835,7 +816,6 @@ async function pullEventsFromRelays() {
         });
       } catch (error) {
         console.warn(error);
-        ok = false;
       }
     }
   }
@@ -844,7 +824,7 @@ async function pullEventsFromRelays() {
     state.events.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }
 
-  return { changed, ok };
+  return changed;
 }
 
 function toRelayEvent(event) {
@@ -867,10 +847,6 @@ function toRelayEvent(event) {
   if (resourceScope?.groupId) {
     relayEvent.scope = 'private';
     relayEvent.recipient = resourceScope.groupId;
-  }
-
-  if ((event.kind === 'resource.pin.updated' || event.kind === 'resource.pin.removed') && event.payload.resourceId) {
-    relayEvent.tile = `okc:resource:${event.payload.resourceId}`;
   }
 
   if (event.kind === 'resource.pin.add' && event.payload.groupId) {
@@ -921,11 +897,6 @@ function cleanRelayUrl(url) {
   return String(url || '').replace(/\/+$/, '');
 }
 
-function setSyncStatus(status) {
-  syncState.status = status;
-  renderSyncBar();
-}
-
 function deriveResources() {
   const resources = state.events
     .filter(event => event.kind === 'resource.pin.add')
@@ -947,26 +918,9 @@ function deriveResources() {
     if (!resource) return;
 
     switch (event.kind) {
-      case 'resource.pin.updated':
-        Object.assign(resource, normalizeResourceRecord({
-          ...resource,
-          ...payload.updates,
-          id: resource.id,
-          createdAt: resource.createdAt,
-        }));
-        resource.updatedAt = event.createdAt;
-        break;
-
-      case 'resource.pin.removed':
-        resource.removedAt = event.createdAt;
-        resource.removedBy = payload.alias || event.author;
-        break;
-
       case 'resource.pin.confirmed':
         resource.confirmations.push({
           alias: payload.alias || 'Local user',
-          identity: payload.identity || event.author,
-          status: CONFIRM_STATUS[payload.status] ? payload.status : 'working',
           at: event.createdAt,
         });
         resource.lastVerifiedAt = maxIsoTimestamp(resource.lastVerifiedAt, event.createdAt);
@@ -1011,44 +965,7 @@ function deriveResources() {
     }
   });
 
-  byId.forEach(resource => {
-    resource.consensus = aggregateResourceConsensus(resource.confirmations);
-  });
-
-  return Array.from(byId.values())
-    .filter(resource => !resource.removedAt)
-    .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
-}
-
-function aggregateResourceConsensus(confirmations) {
-  const latestByIdentity = new Map();
-  confirmations.forEach(entry => {
-    const identity = entry.identity || entry.alias || 'anonymous';
-    const previous = latestByIdentity.get(identity);
-    if (!previous || new Date(entry.at) > new Date(previous.at)) {
-      latestByIdentity.set(identity, entry);
-    }
-  });
-
-  const consensus = {
-    status: 'unknown',
-    score: 0,
-    total: latestByIdentity.size,
-    counts: { working: 0, partial: 0, 'not-working': 0 },
-  };
-
-  latestByIdentity.forEach(entry => {
-    const status = CONFIRM_STATUS[entry.status] ? entry.status : 'working';
-    const ageMs = Date.now() - new Date(entry.at).getTime();
-    const ageDays = Math.max(0, ageMs / 86_400_000);
-    const weight = ageDays <= 7 ? 1 : ageDays <= 30 ? 0.75 : ageDays <= 90 ? 0.5 : 0.25;
-    consensus.score += CONFIRM_STATUS[status].score * weight;
-    consensus.counts[status] += 1;
-  });
-
-  if (consensus.score >= 2) consensus.status = 'working';
-  else if (consensus.score <= -2) consensus.status = 'not-working';
-  return consensus;
+  return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 function deriveEvents(options = {}) {
@@ -1083,9 +1000,10 @@ function deriveMessages() {
 }
 
 function render() {
-  renderSyncBar();
-  renderExploreHome();
   populateScopeDropdowns();
+  renderCityStage();
+  renderIntentRows();
+  renderTopPlans();
   renderNeighborhoodCarousel();
   renderNeighborhoodExploreView();
   renderResources();
@@ -1099,216 +1017,6 @@ function render() {
   renderRelays();
   renderGroups();
   renderEventShape();
-}
-
-function renderSyncBar() {
-  if (buildVersion) buildVersion.textContent = BUILD_ID;
-  if (relayStatus) relayStatus.textContent = syncState.status;
-  if (lastSynced) lastSynced.textContent = syncState.lastSyncedAt ? formatRelative(syncState.lastSyncedAt) : 'never';
-}
-
-function renderExploreHome() {
-  if (!homeHeroTitle) return;
-
-  const activeSector = sectorFilter?.value || 'all';
-  const resources = deriveResources();
-  const events = deriveEvents({ includeExpired: false });
-  const scopedResources = activeSector === 'all' ? resources : resources.filter(item => item.sector === activeSector);
-  const scopedEvents = activeSector === 'all' ? events : events.filter(item => item.sector === activeSector);
-
-  homeHeroTitle.textContent = activeSector === 'all' ? 'Oklahoma City' : activeSector;
-  homeHeroCopy.textContent = activeSector === 'all'
-    ? 'Free things, civic basics, and what is happening nearby.'
-    : `Free stops, civic basics, and tonight's plans in ${activeSector}.`;
-
-  renderHomeNeighborhoodPills(resources, events, activeSector);
-  renderIntentRows(scopedResources, scopedEvents, activeSector);
-  renderTopPlans(scopedResources, scopedEvents, activeSector);
-  renderFeaturedEvents(scopedEvents, activeSector);
-  renderCivicBasics(scopedResources);
-  renderHomeMapPreview(scopedResources, scopedEvents, activeSector);
-  renderHomeNeighborhoodCards(resources, events, activeSector);
-  renderHomeResourceFeed(scopedResources);
-}
-
-function renderHomeNeighborhoodPills(resources, events, activeSector) {
-  const sectors = ['all', ...Object.keys(SECTOR_COORDS)];
-  homeNeighborhoodPills.innerHTML = sectors.map(sector => {
-    const isActive = activeSector === sector;
-    const label = sector === 'all' ? 'All' : sector;
-    const pins = sector === 'all' ? resources.length : resources.filter(item => item.sector === sector).length;
-    const eventCount = sector === 'all' ? events.length : events.filter(item => item.sector === sector).length;
-    return `
-      <button class="home-pill ${isActive ? 'is-active' : ''} ${activeSector !== 'all' && !isActive ? 'is-dimmed' : ''}" type="button" data-home-sector="${escapeAttribute(sector)}">
-        <span>${escapeHtml(label)}</span>
-        <small>${pins} pins · ${eventCount} events</small>
-      </button>
-    `;
-  }).join('');
-}
-
-function renderIntentRows(resources, events, activeSector) {
-  const basics = countBasics(resources);
-  const freeEvents = events.filter(item => item.priceTier === 'free');
-  const bikeCount = resources.filter(item => ['bike_rack', 'water', 'shade'].includes(item.resource)).length;
-  const accessibleCount = resources.filter(item => item.accessibility?.adaStatus === 'ada-confirmed' || item.accessibility?.wheelchairAccess === 'reachable').length;
-  const outreachCount = events.filter(item => /outreach|mutual|support|care|beheard/i.test(`${item.title} ${item.note} ${item.organizer}`)).length;
-  const rows = [
-    ['free', 'Free right now', 'events and places that cost nothing', freeEvents.length],
-    ['basics', 'Basics nearby', 'water, restroom, shade, outlet, trash can', basics.total],
-    ['today', 'Today / tonight', 'what is happening soon in this neighborhood', events.length],
-    ['bike', 'Good with a bike', 'bike racks, shade, water, free stops', bikeCount],
-    ['mutual-aid', 'Mutual aid / outreach', 'drop-ins, outreach, support, community care', outreachCount],
-    ['accessible', 'Accessible nearby', 'ADA, wheelchair reach, path surface', accessibleCount],
-    ['kid', 'Kid-friendly', 'easy low-cost stops and safer pacing', Math.min(freeEvents.length + basics.water + basics.shade, resources.length)],
-  ];
-  intentRows.innerHTML = rows.map(([id, title, copy, count]) => `
-    <button class="intent-row" type="button" data-intent="${id}">
-      <span class="intent-icon">${escapeHtml(intentIcon(id))}</span>
-      <span>
-        <strong>${escapeHtml(title)}</strong>
-        <small>${count ? escapeHtml(copy) : escapeHtml(emptyIntentCopy(id, activeSector))}</small>
-      </span>
-      <em>${count}</em>
-    </button>
-  `).join('');
-}
-
-function renderTopPlans(resources, events, activeSector) {
-  const sector = activeSector === 'all' ? 'OKC' : activeSector;
-  const water = resources.find(item => item.resource === 'water');
-  const restroom = resources.find(item => item.resource === 'restroom');
-  const shade = resources.find(item => item.resource === 'shade' || item.resource === 'garden' || item.resource === 'tree');
-  const bike = resources.find(item => item.resource === 'bike_rack');
-  const freeEvent = events.find(item => item.priceTier === 'free');
-  const plans = [
-    ['No-money afternoon', sector, 'Free', '2 hours', [freeEvent?.title, water?.note, shade?.note]],
-    ['Bike + water loop', sector, 'Free', '45 min', [bike?.note, water?.note, freeEvent?.title]],
-    ['Shade + restroom route', sector, 'Free', '60 min', [shade?.note, restroom?.note, water?.note]],
-    ['Outreach and basics', sector, 'Free', '90 min', [freeEvent?.title, restroom?.note, water?.note]],
-  ];
-  topPlansCarousel.innerHTML = plans.map(([title, place, price, duration, stops]) => `
-    <article class="plan-card">
-      <h3>${escapeHtml(title)}</h3>
-      <p>${escapeHtml(place)} · ${escapeHtml(price)} · ${escapeHtml(duration)}</p>
-      <div>${escapeHtml(stops.filter(Boolean).slice(0, 3).join(' → ') || 'Add pins to build this plan')}</div>
-    </article>
-  `).join('');
-}
-
-function renderFeaturedEvents(events, activeSector) {
-  if (!events.length) {
-    featuredEvents.innerHTML = `<div class="empty">Nothing free right now in ${escapeHtml(activeSector === 'all' ? 'OKC' : activeSector)}. Try Basics nearby or Today / tonight.</div>`;
-    return;
-  }
-  const groups = [
-    ['Live now', events.filter(isEventLive)],
-    ['Later today', events.filter(item => !isEventLive(item) && isToday(resolveEventStart(item)))],
-    ['Upcoming', events.filter(item => !isEventLive(item) && !isToday(resolveEventStart(item)))],
-  ].filter(([, items]) => items.length);
-  featuredEvents.innerHTML = groups.map(([label, items]) => `
-    <div class="event-group">
-      <h3>${escapeHtml(label)}</h3>
-      <div class="event-group-row">${items.slice(0, 4).map(item => renderEventCard(item)).join('')}</div>
-    </div>
-  `).join('');
-}
-
-function renderCivicBasics(resources) {
-  const basics = ['water', 'restroom', 'shade', 'outlet', 'bike_rack', 'trash_can'];
-  civicBasicsStrip.innerHTML = basics.map(type => {
-    const matches = resources.filter(item => item.resource === type);
-    const verified = matches.filter(item => item.confirmations.length || item.consensus?.status === 'working').length;
-    return `<div class="basic-chip"><strong>${escapeHtml(resourceLabel(type))} · ${matches.length}</strong><small>${verified} verified</small></div>`;
-  }).join('');
-}
-
-function renderHomeMapPreview(resources, events, activeSector) {
-  if (!homeMap || !homeMarkersLayer || !homeEventMarkersLayer || !homeNeighborhoodPolygonsLayer) return;
-  homeMarkersLayer.clearLayers();
-  homeEventMarkersLayer.clearLayers();
-  homeNeighborhoodPolygonsLayer.clearLayers();
-
-  const bounds = [];
-  if (activeSector !== 'all') {
-    const polygon = L.polygon(buildNeighborhoodPolygon(activeSector), {
-      color: '#75c47b',
-      weight: 2,
-      fillColor: '#75c47b',
-      fillOpacity: 0.08,
-    }).addTo(homeNeighborhoodPolygonsLayer);
-    bounds.push(...polygon.getLatLngs()[0].map(point => [point.lat, point.lng]));
-  }
-  resources.slice(0, 30).forEach(item => {
-    const [lat, lng] = resolveCoords(item);
-    bounds.push([lat, lng]);
-    L.circleMarker([lat, lng], { radius: 6, color: '#75c47b', fillOpacity: 0.8 }).addTo(homeMarkersLayer);
-  });
-  events.filter(item => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng))).slice(0, 12).forEach(item => {
-    bounds.push([Number(item.lat), Number(item.lng)]);
-    L.circleMarker([Number(item.lat), Number(item.lng)], { radius: 7, color: '#d5b14a', fillOpacity: 0.8 }).addTo(homeEventMarkersLayer);
-  });
-  if (bounds.length > 1) homeMap.fitBounds(bounds, { padding: [24, 24] });
-  else homeMap.setView(activeSector === 'all' ? [35.4676, -97.5164] : SECTOR_COORDS[activeSector], activeSector === 'all' ? 11 : 13);
-}
-
-function renderHomeNeighborhoodCards(resources, events, activeSector) {
-  homeNeighborhoodCards.innerHTML = Object.keys(SECTOR_COORDS).map(sector => {
-    const pins = resources.filter(item => item.sector === sector);
-    const eventCount = events.filter(item => item.sector === sector).length;
-    return `
-      <button class="home-neighborhood-card ${activeSector === sector ? 'is-active' : ''}" type="button" data-home-sector="${escapeAttribute(sector)}">
-        <h3>${escapeHtml(sector)}</h3>
-        <p>${pins.length} pins · ${eventCount} events</p>
-        <span>${escapeHtml(buildNeighborhoodSummary(sector, pins, events.filter(item => item.sector === sector)))}</span>
-        <strong>Start here: ${escapeHtml(recommendedPlanName(sector, pins))}</strong>
-      </button>
-    `;
-  }).join('');
-}
-
-function renderHomeResourceFeed(resources) {
-  const sorted = resources.slice().sort((a, b) => resourceFeedScore(b) - resourceFeedScore(a));
-  homeResourceFeed.innerHTML = sorted.length
-    ? sorted.slice(0, 8).map(item => renderResourceCard(item)).join('')
-    : '<div class="empty">No verified basics here yet. Add the first one.</div>';
-  decorateResourceCards(sorted.slice(0, 8), homeResourceFeed);
-}
-
-function resourceFeedScore(item) {
-  return (item.lastVerifiedAt ? 100 : 0) + (item.photo || item.photos?.length ? 30 : 0) + ((item.confirmations?.length || 0) * 10);
-}
-
-function countBasics(resources) {
-  const counts = { total: 0, water: 0, restroom: 0, shade: 0, outlet: 0, trash_can: 0 };
-  resources.forEach(item => {
-    if (Object.prototype.hasOwnProperty.call(counts, item.resource)) {
-      counts[item.resource] += 1;
-      counts.total += 1;
-    }
-  });
-  return counts;
-}
-
-function resourceLabel(type) {
-  return ({ water: 'Water', restroom: 'Restroom', shade: 'Shade', outlet: 'Outlet', bike_rack: 'Bike rack', trash_can: 'Trash can' })[type] || type;
-}
-
-function intentIcon(id) {
-  return ({ free: '$0', basics: '+', today: '•', bike: '↻', 'mutual-aid': '♥', accessible: 'ADA', kid: 'K' })[id] || '•';
-}
-
-function emptyIntentCopy(id, sector) {
-  const place = sector === 'all' ? 'nearby' : `in ${sector}`;
-  if (id === 'free') return `Nothing free right now ${place}`;
-  if (id === 'bike') return `Not much bike activity ${place}`;
-  return `Add the first useful stop ${place}`;
-}
-
-function recommendedPlanName(sector, pins) {
-  if (pins.some(item => item.resource === 'bike_rack')) return 'Bike + water loop';
-  if (pins.some(item => item.resource === 'shade')) return 'Shade + restroom route';
-  return `${sector} walk`;
 }
 
 function populateScopeDropdowns() {
@@ -1426,6 +1134,141 @@ function renderMap() {
 }
 
 
+
+function getNeighborhoodMedia(sector) {
+  return NEIGHBORHOOD_MEDIA[sector] || NEIGHBORHOOD_MEDIA.all;
+}
+
+function renderCityStage() {
+  const focusedSector = getFocusedSector();
+  const media = getNeighborhoodMedia(focusedSector || 'all');
+
+  if (cityHeroTitle) {
+    cityHeroTitle.textContent = focusedSector || 'Oklahoma City';
+  }
+
+  if (cityHeroCopy) {
+    cityHeroCopy.textContent = getIntentLeadCopy(focusedSector, activeIntent, media.vibe);
+  }
+
+  if (cityStagePhoto) {
+    cityStagePhoto.style.backgroundImage = `url("${media.image}")`;
+  }
+
+  cityStageCard?.classList.toggle('is-neighborhood-focused', Boolean(focusedSector));
+}
+
+function renderIntentRows() {
+  if (!intentRows) return;
+
+  intentRows.innerHTML = INTENT_OPTIONS.map(option => `
+    <button
+      type="button"
+      class="intent-chip ${option.id === activeIntent ? 'is-active' : ''}"
+      data-intent="${escapeAttribute(option.id)}"
+    >
+      <strong>${escapeHtml(option.title)}</strong>
+      <span>${escapeHtml(option.copy)}</span>
+    </button>
+  `).join('');
+}
+
+function renderTopPlans() {
+  if (!topPlansStrip) return;
+
+  const focusedSector = getFocusedSector();
+  const cards = buildTopPlanCards(focusedSector, activeIntent);
+
+  topPlansStrip.innerHTML = cards.map(card => `
+    <article class="top-plan-card" data-sector-focus="${escapeAttribute(card.sector)}" data-plan-intent="${escapeAttribute(card.intent)}" tabindex="0">
+      <img class="top-plan-photo" src="${escapeAttribute(card.image)}" alt="${escapeAttribute(card.title)}">
+      <div class="top-plan-overlay"></div>
+      <div class="top-plan-body">
+        <div class="top-plan-kicker">${escapeHtml(card.sector)} · ${escapeHtml(card.chip)}</div>
+        <h3 class="top-plan-title">${escapeHtml(card.title)}</h3>
+        <p class="top-plan-copy">${escapeHtml(card.copy)}</p>
+        <div class="top-plan-meta">
+          <span>${escapeHtml(card.length)}</span>
+          <span>${escapeHtml(card.stops)}</span>
+        </div>
+      </div>
+    </article>
+  `).join('');
+}
+
+function getIntentLeadCopy(focusedSector, intent, fallbackVibe) {
+  const place = focusedSector || 'Oklahoma City';
+  const map = {
+    all: `Free things, civic basics, and what is happening nearby in ${place}.`,
+    entertainment: `Entertainment-first picks in ${place}: easy hangs, scenic stops, and a light day out.`,
+    interaction: `Groups, events, and social energy in ${place}, without making the map feel overwhelming.`,
+    purpose: `Useful moves in ${place}: volunteering, stewardship, small jobs, and places that help people.`,
+  };
+  return map[intent] || fallbackVibe || map.all;
+}
+
+function buildTopPlanCards(focusedSector, intent) {
+  const sectors = focusedSector ? [focusedSector] : ['Midtown', 'Paseo', 'Plaza', 'Downtown'];
+  const resources = deriveResources();
+  const events = deriveEvents({ includeExpired: false });
+
+  return sectors.slice(0, 4).map((sector, index) => {
+    const media = getNeighborhoodMedia(sector);
+    const sectorResources = resources.filter(item => item.sector === sector);
+    const sectorEvents = events.filter(item => item.sector === sector);
+
+    const plansByIntent = {
+      all: {
+        title: index % 2 === 0 ? 'Start here' : 'Easy afternoon',
+        chip: sectorEvents.length ? 'Free + nearby' : 'Neighborhood plan',
+        copy: sectorEvents.length
+          ? `Catch ${sectorEvents[0].title} and keep the day easy with civic basics nearby.`
+          : `${media.vibe} Start with a simple neighborhood loop and follow what feels open.`,
+        length: sectorEvents.length ? '90 min to 2 hrs' : '1 to 2 hrs',
+        stops: sectorResources.length ? `${Math.min(sectorResources.length, 3)} easy stops` : 'Open-ended',
+      },
+      entertainment: {
+        title: 'Things to do',
+        chip: 'Entertainment',
+        copy: sectorEvents.length
+          ? `Lead with ${sectorEvents[0].title}, then keep going through a few scenic or fun stops.`
+          : `Use ${sector} for a low-pressure entertainment loop with places worth lingering.`,
+        length: '1 to 3 hrs',
+        stops: sectorResources.filter(item => ['garden', 'fishing', 'shade'].includes(item.resource)).length
+          ? 'Scenic stops'
+          : 'Flexible loop',
+      },
+      interaction: {
+        title: 'Go where people are',
+        chip: 'Interaction',
+        copy: sectorEvents.length
+          ? `Start with ${sectorEvents[0].title} and build the rest of the day around live gathering points.`
+          : `No big event loaded yet, but ${sector} still works as a social starting point.`,
+        length: 'Tonight / this week',
+        stops: sectorEvents.length ? `${sectorEvents.length} event options` : 'Watch this neighborhood',
+      },
+      purpose: {
+        title: 'Useful next move',
+        chip: 'Purpose',
+        copy: `Start in ${sector} with practical stops, care infrastructure, and places that can turn into action.`,
+        length: 'Quick errand to half day',
+        stops: sectorResources.filter(item => ['trash_can', 'garden', 'bike_rack', 'water', 'restroom'].includes(item.resource)).length
+          ? 'Basics + civic stops'
+          : 'Practical loop',
+      },
+    };
+
+    const plan = plansByIntent[intent] || plansByIntent.all;
+    return {
+      sector,
+      intent,
+      image: media.image,
+      ...plan,
+    };
+  });
+}
+
+
 function renderNeighborhoodCarousel() {
   if (!neighborhoodCarousel) return;
 
@@ -1459,6 +1302,7 @@ function renderNeighborhoodCarousel() {
   }).join('');
 }
 
+
 function renderNeighborhoodExploreView() {
   if (!neighborhoodExploreView) return;
 
@@ -1480,6 +1324,7 @@ function renderNeighborhoodExploreView() {
         const topResources = resources.filter(item => item.sector === sector).slice(0, 2);
         const topEvents = events.filter(item => item.sector === sector).slice(0, 1);
         const isActive = sector === activeSector;
+        const media = getNeighborhoodMedia(sector);
 
         return `
           <article
@@ -1487,16 +1332,20 @@ function renderNeighborhoodExploreView() {
             data-sector-focus="${escapeAttribute(sector)}"
             tabindex="0"
           >
-            <div>
-              <h3 class="neighborhood-card-title">${escapeHtml(sector)}</h3>
-              <div class="neighborhood-card-meta">
-                <span>${resourceCount} pins</span>
-                <span>${eventCount} events</span>
+            <img class="neighborhood-card-photo" src="${escapeAttribute(media.image)}" alt="${escapeAttribute(sector)} neighborhood">
+            <div class="neighborhood-card-overlay"></div>
+            <div class="neighborhood-card-body">
+              <div>
+                <h3 class="neighborhood-card-title">${escapeHtml(sector)}</h3>
+                <div class="neighborhood-card-meta">
+                  <span>${resourceCount} pins</span>
+                  <span>${eventCount} events</span>
+                </div>
               </div>
-            </div>
-            <p class="neighborhood-card-copy">${escapeHtml(buildNeighborhoodSummary(sector, topResources, topEvents))}</p>
-            <div class="card-meta">
-              <span>${topResources.length ? topResources.map(item => item.note).join(' · ') : 'Explore this neighborhood'}</span>
+              <p class="neighborhood-card-copy">${escapeHtml(buildNeighborhoodSummary(sector, topResources, topEvents))}</p>
+              <div class="card-meta">
+                <span>${escapeHtml(media.vibe)}</span>
+              </div>
             </div>
           </article>
         `;
@@ -1785,8 +1634,6 @@ function renderEventShape() {
       'resource.pin.rated',
       'resource.pin.noted',
       'resource.pin.photo.added',
-      'resource.pin.updated',
-      'resource.pin.removed',
       'event.pin.add',
       'job.posted',
       'planner.requested',
@@ -1887,7 +1734,7 @@ async function handleResourceSubmit(event) {
   const scopeValue = fd.get('scope') || 'public';
   const groupId = scopeValue === 'public' ? null : scopeValue;
 
-  const resourcePayload = {
+  appendEvent('resource.pin.add', {
     resource: fd.get('resource'),
     sector,
     access: fd.get('access'),
@@ -1904,30 +1751,16 @@ async function handleResourceSubmit(event) {
       wheelchairAccess: String(fd.get('wheelchairAccess') || 'unknown'),
       pathSurface: String(fd.get('pathSurface') || 'unknown'),
     },
-  };
-
-  const wasEditing = Boolean(editingResourceId);
-  if (editingResourceId) {
-    appendEvent('resource.pin.updated', {
-      resourceId: editingResourceId,
-      updates: resourcePayload,
-      alias: state.identity.alias,
-    });
-  } else {
-    appendEvent('resource.pin.add', resourcePayload);
-  }
+  });
 
   form.reset();
-  editingResourceId = null;
   clearPendingLocation();
   resourcePreview.dataset.photo = '';
   resourcePreview.innerHTML = '';
   resourcePreview.classList.add('hidden');
-  form.querySelector('button[type="submit"]').textContent = 'Post pin';
   renderResources();
   renderMap();
-  syncWithRelays();
-  toastMessage(wasEditing ? 'Pin updated and syncing.' : 'Pin posted and syncing.');
+  toastMessage('Pin posted locally.');
 }
 
 async function handleEventSubmit(event) {
@@ -1979,8 +1812,7 @@ async function handleEventSubmit(event) {
   form.reset();
   renderEvents();
   renderMap();
-  syncWithRelays();
-  toastMessage('Event posted and syncing.');
+  toastMessage('Event posted locally.');
 }
 
 function handleResourceCardClick(event) {
@@ -1991,28 +1823,14 @@ function handleResourceCardClick(event) {
   const action = button.dataset.pinAction;
   if (!resourceId || !action) return;
 
-  if (action === 'edit') {
-    startResourceEdit(resourceId);
-    return;
-  }
-
-  if (action === 'remove') {
-    removeResource(resourceId);
-    return;
-  }
-
-  if (action === 'confirm' || action === 'partial' || action === 'not-working') {
-    const status = action === 'confirm' ? 'working' : action;
+  if (action === 'confirm') {
     appendEvent('resource.pin.confirmed', {
       resourceId,
-      status,
-      identity: state.identity.deviceId,
       alias: state.identity.alias,
     });
     renderResources();
     renderMap();
-    syncWithRelays();
-    toastMessage(`Pin marked ${CONFIRM_STATUS[status].label}.`);
+    toastMessage('Pin confirmed.');
     return;
   }
 
@@ -2028,7 +1846,6 @@ function handleResourceCardClick(event) {
     });
     renderResources();
     renderMap();
-    syncWithRelays();
     toastMessage('Rating saved.');
     return;
   }
@@ -2044,7 +1861,6 @@ function handleResourceCardClick(event) {
     });
     renderResources();
     renderMap();
-    syncWithRelays();
     toastMessage('Note added.');
     return;
   }
@@ -2072,55 +1888,7 @@ async function handleResourceCardChange(event) {
   input.value = '';
   renderResources();
   renderMap();
-  syncWithRelays();
   toastMessage('Photo added.');
-}
-
-function startResourceEdit(resourceId) {
-  const resource = deriveResources().find(item => item.id === resourceId);
-  if (!resource || resource.author !== state.identity.deviceId) {
-    toastMessage('Only this device can edit that pin.');
-    return;
-  }
-
-  editingResourceId = resourceId;
-  window.location.hash = '#map';
-  resourceForm.resource.value = resource.resource || 'water';
-  resourceForm.scope.value = resource.groupId || 'public';
-  resourceForm.sector.value = resource.sector || 'Downtown';
-  resourceForm.access.value = resource.access || 'public';
-  resourceForm.adaStatus.value = resource.accessibility?.adaStatus || 'unknown';
-  resourceForm.wheelchairAccess.value = resource.accessibility?.wheelchairAccess || 'unknown';
-  resourceForm.pathSurface.value = resource.accessibility?.pathSurface || 'unknown';
-  resourceForm.note.value = resource.note || '';
-  resourceForm.locationQuery.value = resource.address || resource.placeName || '';
-  resourceForm.lat.value = resource.lat || '';
-  resourceForm.lng.value = resource.lng || '';
-  resourceForm.placeName.value = resource.placeName || '';
-  resourceForm.address.value = resource.address || '';
-  resourcePreview.dataset.photo = resource.photo || '';
-  resourcePreview.innerHTML = resource.photo ? `<img src="${escapeAttribute(resource.photo)}" alt="Pin photo">` : '';
-  resourcePreview.classList.toggle('hidden', !resource.photo);
-  resourceForm.querySelector('button[type="submit"]').textContent = 'Update pin';
-  renderSelectedLocationCard(resource.placeName, resource.address, 'Editing this pin');
-  toastMessage('Editing pin. Update photo or details, then save.');
-}
-
-function removeResource(resourceId) {
-  const resource = deriveResources().find(item => item.id === resourceId);
-  if (!resource || resource.author !== state.identity.deviceId) {
-    toastMessage('Only this device can remove that pin.');
-    return;
-  }
-  const ok = window.confirm('Remove this pin from the public map?');
-  if (!ok) return;
-  appendEvent('resource.pin.removed', {
-    resourceId,
-    alias: state.identity.alias,
-  });
-  render();
-  syncWithRelays();
-  toastMessage('Pin removed and syncing.');
 }
 
 function handleCreateGroup(event) {
@@ -2475,12 +2243,10 @@ async function seedBeHeardEvents() {
 
   renderEvents();
   renderMap();
-  await syncWithRelays();
   toastMessage(added ? `Loaded ${added} BeHeard OKC events.` : 'BeHeard OKC events already loaded.');
 }
 
 async function seedDemoData() {
-  await syncWithRelays();
   const existingNotes = new Set(deriveResources().map(item => item.note));
   const seeds = [
     {
@@ -2537,8 +2303,7 @@ async function seedDemoData() {
 
   let added = 0;
   for (const seed of seeds) {
-    const seedId = `seed:resource:${slugify(seed.placeName || seed.note)}:${seed.resource}`;
-    if (existingNotes.has(seed.note) || state.events.some(event => event.id === seedId)) continue;
+    if (existingNotes.has(seed.note)) continue;
 
     let coords = null;
     try {
@@ -2552,16 +2317,12 @@ async function seedDemoData() {
       ...seed,
       lat: coords ? coords[0] : (SECTOR_COORDS[seed.sector] || [35.4676, -97.5164])[0],
       lng: coords ? coords[1] : (SECTOR_COORDS[seed.sector] || [35.4676, -97.5164])[1],
-    }, {
-      id: seedId,
-      createdAt: '2026-05-09T00:00:00.000Z',
     });
     added += 1;
   }
 
   renderResources();
   renderMap();
-  await syncWithRelays();
   toastMessage(added ? `Loaded ${added} seed pins.` : 'Seed pins already loaded.');
 }
 
@@ -2647,13 +2408,6 @@ function isEventLive(event) {
   return new Date(startIso).getTime() <= now && new Date(endIso).getTime() >= now;
 }
 
-function isToday(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
-}
-
 function resolveEventStart(event) {
   if (event.date && event.startTime) return `${event.date}T${event.startTime}`;
   if (event.date) return `${event.date}T00:00`;
@@ -2722,8 +2476,8 @@ function renderResourceCard(item) {
   `;
 }
 
-function decorateResourceCards(resources, container = resourceList) {
-  const cards = Array.from(container.querySelectorAll('.card'));
+function decorateResourceCards(resources) {
+  const cards = Array.from(resourceList.querySelectorAll('.card'));
 
   cards.forEach((card, index) => {
     const resource = resources[index];
@@ -2737,8 +2491,6 @@ function decorateResourceCards(resources, container = resourceList) {
 }
 
 function renderResourceScorecard(resource) {
-  const consensus = resource.consensus || { status: 'unknown', total: 0 };
-  const isMine = resource.author === state.identity.deviceId;
   const ratingCount = resource.ratings.length;
   const averageRating = ratingCount
     ? (resource.ratings.reduce((sum, entry) => sum + Number(entry.score || 0), 0) / ratingCount).toFixed(1)
@@ -2763,11 +2515,11 @@ function renderResourceScorecard(resource) {
         </div>
 
         <div class="scorecard-block">
-          <span class="scorecard-label">Consensus</span>
-          <div class="scorecard-value">${escapeHtml(consensusLabel(consensus))}</div>
+          <span class="scorecard-label">Confirmations</span>
+          <div class="scorecard-value">${resource.confirmations.length}</div>
           <div class="scorecard-note">${
             resource.lastVerifiedAt
-              ? `${resource.confirmations.length} confirmation${resource.confirmations.length === 1 ? '' : 's'} · latest ${escapeHtml(formatRelative(resource.lastVerifiedAt))}`
+              ? `Last verified ${escapeHtml(formatRelative(resource.lastVerifiedAt))}`
               : 'No confirmations yet'
           }</div>
         </div>
@@ -2811,10 +2563,6 @@ function renderResourceScorecard(resource) {
 
       <div class="scorecard-actions">
         <button class="button small" type="button" data-pin-action="confirm" data-resource-id="${escapeAttribute(resource.id)}">Confirm working</button>
-        <button class="button small" type="button" data-pin-action="partial" data-resource-id="${escapeAttribute(resource.id)}">Partial</button>
-        <button class="button small" type="button" data-pin-action="not-working" data-resource-id="${escapeAttribute(resource.id)}">Not working</button>
-        ${isMine ? `<button class="button small" type="button" data-pin-action="edit" data-resource-id="${escapeAttribute(resource.id)}">Edit</button>` : ''}
-        ${isMine ? `<button class="button small danger" type="button" data-pin-action="remove" data-resource-id="${escapeAttribute(resource.id)}">Remove</button>` : ''}
         <button class="button small" type="button" data-pin-action="rate" data-resource-id="${escapeAttribute(resource.id)}">Rate pin</button>
         <button class="button small" type="button" data-pin-action="note" data-resource-id="${escapeAttribute(resource.id)}">Add note</button>
         <button class="button small" type="button" data-pin-action="photo" data-resource-id="${escapeAttribute(resource.id)}">Add photo</button>
@@ -2905,7 +2653,6 @@ function normalizeResourceRecord(resource) {
   next.comments = Array.isArray(next.comments) ? next.comments : [];
   next.photos = Array.isArray(next.photos) ? next.photos : [];
   next.lastVerifiedAt = next.lastVerifiedAt || null;
-  next.consensus = next.consensus || { status: 'unknown', score: 0, total: 0, counts: { working: 0, partial: 0, 'not-working': 0 } };
 
   return next;
 }
@@ -2986,13 +2733,6 @@ function maxIsoTimestamp(a, b) {
   return new Date(a) > new Date(b) ? a : b;
 }
 
-function consensusLabel(consensus) {
-  if (!consensus || !consensus.total) return 'unknown';
-  if (consensus.status === 'working') return 'working';
-  if (consensus.status === 'not-working') return 'not working';
-  return 'mixed';
-}
-
 function formatRelative(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'recently';
@@ -3058,12 +2798,4 @@ function capitalize(value) {
 
 function roundCoord(value) {
   return Math.round(Number(value) * 1_000_000) / 1_000_000;
-}
-
-function slugify(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 80);
 }

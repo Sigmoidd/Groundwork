@@ -6,25 +6,24 @@
   <title>Groundwork OKC</title>
   <meta name="description" content="Groundwork dignifies the city by making it legible to everyone who lives in it. Map water, restrooms, outlets, shade, gardens, fishing spots, and civic resources in Oklahoma City.">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="assets/styles.css?v=2026.05.09.1">
+  <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
-  <header class="topbar appbar">
+  <header class="topbar">
     <div>
       <p class="eyebrow">GROUNDWORK OKC</p>
-      <h1>Oklahoma City</h1>
-      <p class="lede">Free things, civic basics, and what&rsquo;s happening nearby.</p>
+      <h1>Groundwork dignifies the city.</h1>
+      <p class="lede">A local-first civic map for water, restrooms, outlets, shade, gardens, fishing spots, and neighborhood care in Oklahoma City. Public pins live on the open map. Group submaps keep fishing crews, planting teams, cleanup routes, and trusted networks scoped to the people who need them.</p>
     </div>
     <div class="hero-actions">
-      <a class="button primary" href="#explore">Explore</a>
-      <a class="button" href="#map">Map</a>
-      <a class="button" href="#secure">Me</a>
+      <a class="button primary" href="#map">Open live map</a>
+      <a class="button" href="#planner">Open planner</a>
+      <a class="button" href="#groups">Groups</a>
     </div>
   </header>
 
   <nav class="tabs" aria-label="Primary">
-    <a href="#explore" data-route="explore" class="tab is-active">Explore</a>
-    <a href="#map" data-route="map" class="tab">Map</a>
+    <a href="#map" data-route="map" class="tab is-active">Map</a>
     <a href="#jobs" data-route="jobs" class="tab">Jobs</a>
     <a href="#events" data-route="events" class="tab">Events</a>
     <a href="#planner" data-route="planner" class="tab">Planner</a>
@@ -35,92 +34,8 @@
     <a href="#about" data-route="about" class="tab">About</a>
   </nav>
 
-  <div class="sync-bar" aria-live="polite">
-    <span>Build <strong id="buildVersion">2026.05.09.1</strong></span>
-    <span>Relay <strong id="relayStatus">starting</strong></span>
-    <span>Last synced <strong id="lastSynced">never</strong></span>
-    <button class="button small" id="syncNowButton" type="button">Sync now</button>
-  </div>
-
   <main class="shell">
-    <section id="view-explore" class="view is-active">
-      <section class="home-hero">
-        <p class="eyebrow">EXPLORE</p>
-        <h2 id="homeHeroTitle">Oklahoma City</h2>
-        <p id="homeHeroCopy">Free things, civic basics, and what&rsquo;s happening nearby.</p>
-      </section>
-
-      <section class="home-section">
-        <div id="homeNeighborhoodPills" class="home-neighborhood-pills" aria-label="Neighborhoods"></div>
-      </section>
-
-      <section class="home-section">
-        <div id="intentRows" class="intent-list" aria-label="Explore by intent"></div>
-      </section>
-
-      <section class="home-section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">TOP PLANS</p>
-            <h2>Ready-made ways through the city</h2>
-          </div>
-        </div>
-        <div id="topPlansCarousel" class="plan-carousel"></div>
-      </section>
-
-      <section class="home-section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">FEATURED EVENTS</p>
-            <h2>What&rsquo;s happening soon</h2>
-          </div>
-        </div>
-        <div id="featuredEvents" class="event-strip"></div>
-      </section>
-
-      <section class="home-section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">CIVIC BASICS</p>
-            <h2>What can help right now</h2>
-          </div>
-        </div>
-        <div id="civicBasicsStrip" class="basics-strip"></div>
-      </section>
-
-      <section class="home-section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">MAP PREVIEW</p>
-            <h2>Nearby shape of things</h2>
-          </div>
-          <a class="button small" href="#map">Open full map</a>
-        </div>
-        <div id="mapPreviewCanvas" class="map-preview" aria-label="Map preview"></div>
-      </section>
-
-      <section class="home-section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">NEIGHBORHOODS</p>
-            <h2>Pick a place to wander</h2>
-          </div>
-        </div>
-        <div id="homeNeighborhoodCards" class="home-neighborhood-grid"></div>
-      </section>
-
-      <section class="home-section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">RESOURCE FEED</p>
-            <h2>Proof-first details</h2>
-          </div>
-        </div>
-        <div id="homeResourceFeed" class="home-resource-feed"></div>
-      </section>
-    </section>
-
-    <section id="view-map" class="view">
+    <section id="view-map" class="view is-active">
       <div class="panel-grid">
         <section class="panel">
           <div class="panel-head">
@@ -134,33 +49,64 @@
             </div>
           </div>
 
+
+          <section class="explore-home">
+            <div id="cityStageCard" class="city-stage-card">
+              <div id="cityStagePhoto" class="city-stage-photo" role="img" aria-label="Featured neighborhood photo"></div>
+              <div class="city-stage-scrim"></div>
+              <div class="city-stage-copy">
+                <p class="city-stage-kicker">EXPLORE OKC</p>
+                <h2 id="cityHeroTitle" class="city-stage-title">Oklahoma City</h2>
+                <p id="cityHeroCopy" class="city-stage-body">Free things, civic basics, and what is happening nearby.</p>
+              </div>
+            </div>
+
+            <div class="section-headline">
+              <h3>Pick a mood</h3>
+              <p>Start with something that feels easy.</p>
+            </div>
+            <div id="intentRows" class="intent-rows" aria-label="Find something to do"></div>
+
+            <div class="section-headline">
+              <h3>Top plans</h3>
+              <p>Photo-backed neighborhood cards inspired by a bright, playful city day.</p>
+            </div>
+            <div id="topPlansStrip" class="top-plans-strip" aria-live="polite"></div>
+          </section>
+
+
           <div class="map-toolbar">
-            <select id="scopeFilter">
-              <option value="public">Public map</option>
-            </select>
-            <select id="resourceFilter">
-              <option value="all">All resource types</option>
-              <option value="water">Water</option>
-              <option value="restroom">Restroom</option>
-              <option value="outlet">Outlet</option>
-              <option value="shade">Shade</option>
-              <option value="tree">Fruit / tree</option>
-              <option value="garden">Garden / stewardship</option>
-              <option value="fishing">Fishing spot</option>
-              <option value="bike_rack">Bike rack</option>
-              <option value="trash_can">Trash can</option>
-            </select>
-            <select id="sectorFilter">
-              <option value="all">All sectors</option>
-              <option value="Paseo">Paseo</option>
-              <option value="Plaza">Plaza</option>
-              <option value="Midtown">Midtown</option>
-              <option value="Downtown">Downtown</option>
-              <option value="Innovation District">Innovation District</option>
-              <option value="Capitol Hill">Capitol Hill</option>
-              <option value="NE 23rd">NE 23rd</option>
-              <option value="Southside">Southside</option>
-            </select>
+            <details>
+              <summary>Refine the map</summary>
+              <div class="filter-stack">
+                <select id="scopeFilter">
+                  <option value="public">Public map</option>
+                </select>
+                <select id="resourceFilter">
+                  <option value="all">All resource types</option>
+                  <option value="water">Water</option>
+                  <option value="restroom">Restroom</option>
+                  <option value="outlet">Outlet</option>
+                  <option value="shade">Shade</option>
+                  <option value="tree">Fruit / tree</option>
+                  <option value="garden">Garden / stewardship</option>
+                  <option value="fishing">Fishing spot</option>
+                  <option value="bike_rack">Bike rack</option>
+                  <option value="trash_can">Trash can</option>
+                </select>
+                <select id="sectorFilter">
+                  <option value="all">All sectors</option>
+                  <option value="Paseo">Paseo</option>
+                  <option value="Plaza">Plaza</option>
+                  <option value="Midtown">Midtown</option>
+                  <option value="Downtown">Downtown</option>
+                  <option value="Innovation District">Innovation District</option>
+                  <option value="Capitol Hill">Capitol Hill</option>
+                  <option value="NE 23rd">NE 23rd</option>
+                  <option value="Southside">Southside</option>
+                </select>
+              </div>
+            </details>
           </div>
 
           <div id="neighborhoodCarousel" class="neighborhood-carousel" aria-label="Neighborhoods"></div>
@@ -180,12 +126,6 @@
             </div>
           </div>
           <form id="resourceForm" class="stack" novalidate>
-            <label class="photo-first">
-              Photo first
-              <input type="file" name="photo" accept="image/*" capture="environment">
-            </label>
-            <div id="resourcePreview" class="preview hidden"></div>
-            <p class="help">Take or add a photo first. If the image has location data, Groundwork will attach the place automatically.</p>
             <label>
               Resource type
               <select name="resource" required>
@@ -258,8 +198,8 @@
               </select>
             </label>
             <label>
-              Short caption
-              <input type="text" name="note" maxlength="140" placeholder="Water fountain outside west doors" required>
+              One sentence
+              <input type="text" name="note" maxlength="140" placeholder="Water fountain outside west library doors" required>
             </label>
             <label>
               Attach a place or address
@@ -276,8 +216,14 @@
             <input type="hidden" name="lng">
             <input type="hidden" name="placeName">
             <input type="hidden" name="address">
+            <label>
+              Optional photo
+              <input type="file" name="photo" accept="image/*">
+            </label>
+            <div id="resourcePreview" class="preview hidden"></div>
             <button class="button primary" type="submit">Post pin</button>
-            <p class="help">Public pins go on the open map. Group-scoped pins stay private. After posting, you can edit or remove pins created by this device.</p>
+            <p class="help">Public pins go on the open map. Group-scoped pins stay private on the relay and only appear for group members.</p>
+            <p class="help">Search by name or address, or let a photo with EXIF GPS fill the place automatically. If no location is attached yet, Groundwork will ask for one on submit. After posting, people can confirm, rate, note, and attach more photos from each pin card.</p>
           </form>
         </aside>
       </div>
@@ -741,18 +687,10 @@
     </section>
   </main>
 
-  <nav class="bottom-nav" aria-label="Mobile primary">
-    <a href="#explore" data-route="explore">Explore</a>
-    <a href="#map" data-route="map">Map</a>
-    <a href="#planner" data-route="planner">Plans</a>
-    <a href="#relays" data-route="relays">Saved</a>
-    <a href="#secure" data-route="secure">Me</a>
-  </nav>
-
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/exifr/dist/lite.umd.js"></script>
-  <script src="assets/app.js?v=2026.05.09.1"></script>
+  <script src="assets/app.js"></script>
 </body>
 </html>

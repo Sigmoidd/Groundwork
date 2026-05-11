@@ -113,6 +113,12 @@ const INTENT_OPTIONS = [
   { id: 'purpose', title: 'Purpose', copy: 'Mutual aid, stewardship, and useful next moves.' },
 ];
 
+const TRAVEL_OPTIONS = [
+  { id: 'foot', title: 'Foot', copy: 'Keep it close and easy.' },
+  { id: 'scooter', title: 'Scooter / e-bike', copy: 'Stretch out without range stress.' },
+  { id: 'car', title: 'Car', copy: 'Wider radius and destination density.' },
+];
+
 const state = loadState();
 
 let map = null;
@@ -123,6 +129,8 @@ let pendingLocation = null;
 let pendingMarker = null;
 let currentThread = null;
 let activeIntent = 'all';
+let activeTravelMode = 'foot';
+let mapPreviewOpen = false;
 
 const routes = ['map', 'jobs', 'events', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
 const tabEls = Array.from(document.querySelectorAll('.tab'));
@@ -160,6 +168,11 @@ const cityHeroTitle = document.getElementById('cityHeroTitle');
 const cityHeroCopy = document.getElementById('cityHeroCopy');
 const intentRows = document.getElementById('intentRows');
 const topPlansStrip = document.getElementById('topPlansStrip');
+const travelModeRows = document.getElementById('travelModeRows');
+const featuredEventsPreview = document.getElementById('featuredEventsPreview');
+const civicBasicsStrip = document.getElementById('civicBasicsStrip');
+const mapPreviewToggle = document.getElementById('mapPreviewToggle');
+const mapPreviewSection = document.getElementById('mapPreviewSection');
 const inboxSummary = document.getElementById('inboxSummary');
 const eventShape = document.getElementById('eventShape');
 const contactAliases = document.getElementById('contactAliases');
@@ -390,11 +403,19 @@ function wireForms() {
 
     const sector = button.dataset.sectorFocus || 'all';
     sectorFilter.value = sector;
+    mapPreviewOpen = true;
+    renderCityStage();
+    renderNeighborhoodCarousel();
+    renderIntentRows();
+    renderTravelModeRows();
+    renderTopPlans();
+    renderFeaturedEventsPreview();
+    renderCivicBasicsStrip();
+    renderMapPreview();
+    renderNeighborhoodExploreView();
     renderResources();
     renderMap();
     renderEvents();
-    renderNeighborhoodCarousel();
-    renderNeighborhoodExploreView();
   });
 
   neighborhoodExploreView?.addEventListener('click', event => {
@@ -403,14 +424,19 @@ function wireForms() {
 
     const sector = card.dataset.sectorFocus || 'all';
     sectorFilter.value = sector;
+    mapPreviewOpen = true;
     renderCityStage();
+    renderNeighborhoodCarousel();
     renderIntentRows();
+    renderTravelModeRows();
     renderTopPlans();
+    renderFeaturedEventsPreview();
+    renderCivicBasicsStrip();
+    renderMapPreview();
+    renderNeighborhoodExploreView();
     renderResources();
     renderMap();
     renderEvents();
-    renderNeighborhoodCarousel();
-    renderNeighborhoodExploreView();
   });
 
   intentRows?.addEventListener('click', event => {
@@ -419,8 +445,28 @@ function wireForms() {
     activeIntent = button.dataset.intent || 'all';
     renderCityStage();
     renderIntentRows();
+    renderTravelModeRows();
     renderTopPlans();
+    renderFeaturedEventsPreview();
+    renderCivicBasicsStrip();
     renderNeighborhoodExploreView();
+  });
+
+  travelModeRows?.addEventListener('click', event => {
+    const button = event.target.closest('[data-travel-mode]');
+    if (!button) return;
+    activeTravelMode = button.dataset.travelMode || 'foot';
+    renderCityStage();
+    renderTravelModeRows();
+    renderTopPlans();
+    renderFeaturedEventsPreview();
+    renderCivicBasicsStrip();
+    renderNeighborhoodExploreView();
+  });
+
+  mapPreviewToggle?.addEventListener('click', () => {
+    mapPreviewOpen = !mapPreviewOpen;
+    renderMapPreview();
   });
 
   topPlansStrip?.addEventListener('click', event => {
@@ -430,18 +476,23 @@ function wireForms() {
     if (card.dataset.sectorFocus && sectorFilter) {
       sectorFilter.value = card.dataset.sectorFocus || 'all';
     }
+    mapPreviewOpen = true;
     if (card.dataset.planIntent) {
       activeIntent = card.dataset.planIntent || 'all';
     }
 
     renderCityStage();
+    renderNeighborhoodCarousel();
     renderIntentRows();
+    renderTravelModeRows();
     renderTopPlans();
+    renderFeaturedEventsPreview();
+    renderCivicBasicsStrip();
+    renderMapPreview();
+    renderNeighborhoodExploreView();
     renderResources();
     renderMap();
     renderEvents();
-    renderNeighborhoodCarousel();
-    renderNeighborhoodExploreView();
   });
 }
 
@@ -1002,9 +1053,13 @@ function deriveMessages() {
 function render() {
   populateScopeDropdowns();
   renderCityStage();
-  renderIntentRows();
-  renderTopPlans();
   renderNeighborhoodCarousel();
+  renderIntentRows();
+  renderTravelModeRows();
+  renderTopPlans();
+  renderFeaturedEventsPreview();
+  renderCivicBasicsStrip();
+  renderMapPreview();
   renderNeighborhoodExploreView();
   renderResources();
   renderMap();
@@ -1043,13 +1098,31 @@ function getFilteredResources() {
   const sectorValue = sectorFilter?.value || 'all';
   const scopeValue = scopeFilter?.value || 'public';
 
-  return resources.filter(item => {
-    const itemScope = item.groupId ? item.groupId : 'public';
-    const scopeOk = scopeValue === 'public' ? itemScope === 'public' : itemScope === scopeValue;
-    const typeOk = typeValue === 'all' || item.resource === typeValue;
-    const sectorOk = sectorValue === 'all' || item.sector === sectorValue;
-    return scopeOk && typeOk && sectorOk;
-  });
+  return resources
+    .filter(item => {
+      const itemScope = item.groupId ? item.groupId : 'public';
+      const scopeOk = scopeValue === 'public' ? itemScope === 'public' : itemScope === scopeValue;
+      const typeOk = typeValue === 'all' || item.resource === typeValue;
+      const sectorOk = sectorValue === 'all' || item.sector === sectorValue;
+      return scopeOk && typeOk && sectorOk;
+    })
+    .sort((a, b) => getResourcePriorityScore(b) - getResourcePriorityScore(a));
+}
+
+function getResourcePriorityScore(item) {
+  const scoreMap = {
+    water: 9, restroom: 9, shade: 8, outlet: 8, bike_rack: 7, trash_can: 7, garden: 6, fishing: 5, tree: 5,
+  };
+  let score = scoreMap[item.resource] || 4;
+  if (item.confirmations?.length) score += 2;
+  if (item.photo || item.photos?.length) score += 1;
+  if (activeIntent === 'entertainment' && ['garden','fishing','shade','tree'].includes(item.resource)) score += 3;
+  if (activeIntent === 'interaction' && ['restroom','water','shade'].includes(item.resource)) score += 2;
+  if (activeIntent === 'purpose' && ['garden','trash_can','water','restroom','bike_rack'].includes(item.resource)) score += 3;
+  if (activeTravelMode === 'foot' && ['water','restroom','shade'].includes(item.resource)) score += 2;
+  if (activeTravelMode === 'scooter' && ['bike_rack','outlet','water','shade'].includes(item.resource)) score += 3;
+  if (activeTravelMode === 'car' && ['restroom','trash_can','outlet'].includes(item.resource)) score += 1;
+  return score;
 }
 
 function renderResources() {
@@ -1173,6 +1246,90 @@ function renderIntentRows() {
   `).join('');
 }
 
+function renderTravelModeRows() {
+  if (!travelModeRows) return;
+
+  travelModeRows.innerHTML = TRAVEL_OPTIONS.map(option => `
+    <button
+      type="button"
+      class="travel-chip ${option.id === activeTravelMode ? 'is-active' : ''}"
+      data-travel-mode="${escapeAttribute(option.id)}"
+    >
+      <strong>${escapeHtml(option.title)}</strong>
+      <span>${escapeHtml(option.copy)}</span>
+    </button>
+  `).join('');
+}
+
+function renderFeaturedEventsPreview() {
+  if (!featuredEventsPreview) return;
+  const events = getFilteredEvents().slice(0, 4);
+  if (!events.length) {
+    featuredEventsPreview.innerHTML = '<div class="empty">Nothing active or upcoming here yet. Try another neighborhood or load the BeHeard seed.</div>';
+    return;
+  }
+
+  featuredEventsPreview.innerHTML = events.map(item => {
+    const date = getEventDateParts(item);
+    const priceClass = (item.priceTier || 'free').replace(/[^a-z0-9-]/gi, '-');
+    const status = isEventLive(item) ? 'live' : 'today';
+    return `
+      <article class="featured-event-row">
+        <div class="featured-event-date"><span>${escapeHtml(date.month)}</span><strong>${escapeHtml(date.day)}</strong></div>
+        <div class="featured-event-copy">
+          <h4>${escapeHtml(item.title)}</h4>
+          <p>${escapeHtml(item.placeName || item.address || item.sector || 'Oklahoma City')}</p>
+          <div class="featured-event-meta">
+            <span class="status-chip ${status}">${isEventLive(item) ? 'Live now' : 'Upcoming'}</span>
+            <span class="price-chip ${priceClass}">${escapeHtml(getPriceLabel(item.priceTier))}</span>
+          </div>
+        </div>
+        <div class="card-meta"><span>${escapeHtml(formatEventSchedule(item))}</span></div>
+      </article>
+    `;
+  }).join('');
+}
+
+function renderCivicBasicsStrip() {
+  if (!civicBasicsStrip) return;
+  const resources = getFilteredResources();
+  const groups = [
+    ['water', 'Water'],
+    ['restroom', 'Restroom'],
+    ['shade', 'Shade'],
+    ['outlet', 'Outlet'],
+    ['bike_rack', 'Bike rack'],
+    ['trash_can', 'Trash can'],
+  ];
+
+  civicBasicsStrip.innerHTML = groups.map(([key, label]) => {
+    const count = resources.filter(item => item.resource === key).length;
+    return `<div class="basic-chip"><strong>${escapeHtml(label)}</strong><span>${count} nearby</span></div>`;
+  }).join('');
+}
+
+function renderMapPreview() {
+  if (!mapPreviewSection || !mapPreviewToggle) return;
+  mapPreviewSection.classList.toggle('is-collapsed', !mapPreviewOpen);
+  mapPreviewToggle.textContent = mapPreviewOpen ? 'Hide map' : 'Show map';
+  if (mapPreviewOpen && map) setTimeout(() => map.invalidateSize(), 50);
+}
+
+function getEventDateParts(event) {
+  const dateText = resolveEventStart(event);
+  const parsed = new Date(dateText);
+  if (Number.isNaN(parsed.getTime())) return { month: 'Soon', day: '•' };
+  return {
+    month: parsed.toLocaleDateString('en-US', { month: 'short' }).toUpperCase(),
+    day: String(parsed.getDate()),
+  };
+}
+
+function getPriceLabel(value) {
+  const map = { free: 'Free', 'under-10': 'Under $10', paid: 'Paid' };
+  return map[value] || 'Free';
+}
+
 function renderTopPlans() {
   if (!topPlansStrip) return;
 
@@ -1198,17 +1355,19 @@ function renderTopPlans() {
 
 function getIntentLeadCopy(focusedSector, intent, fallbackVibe) {
   const place = focusedSector || 'Oklahoma City';
+  const travelMap = { foot: 'on foot', scooter: 'by scooter or e-bike', car: 'by car' };
+  const travelText = travelMap[activeTravelMode] || 'nearby';
   const map = {
-    all: `Free things, civic basics, and what is happening nearby in ${place}.`,
-    entertainment: `Entertainment-first picks in ${place}: easy hangs, scenic stops, and a light day out.`,
-    interaction: `Groups, events, and social energy in ${place}, without making the map feel overwhelming.`,
-    purpose: `Useful moves in ${place}: volunteering, stewardship, small jobs, and places that help people.`,
+    all: `Free things, civic basics, and what is happening nearby in ${place}, ${travelText}.`,
+    entertainment: `Entertainment-first picks in ${place}: easy hangs, scenic stops, and a light day out ${travelText}.`,
+    interaction: `Groups, events, and social energy in ${place}, tuned for moving ${travelText}.`,
+    purpose: `Useful moves in ${place}: volunteering, stewardship, small jobs, and places that help people ${travelText}.`,
   };
   return map[intent] || fallbackVibe || map.all;
 }
 
 function buildTopPlanCards(focusedSector, intent) {
-  const sectors = focusedSector ? [focusedSector] : ['Midtown', 'Paseo', 'Plaza', 'Downtown'];
+  const sectors = focusedSector ? [focusedSector] : ['Midtown', 'Paseo', 'Plaza'];
   const resources = deriveResources();
   const events = deriveEvents({ includeExpired: false });
 
@@ -1259,11 +1418,13 @@ function buildTopPlanCards(focusedSector, intent) {
     };
 
     const plan = plansByIntent[intent] || plansByIntent.all;
+    const travelMeta = { foot: 'Best close by', scooter: 'Good on a scooter', car: 'Worth the drive' };
     return {
       sector,
       intent,
       image: media.image,
       ...plan,
+      chip: `${plan.chip} · ${travelMeta[activeTravelMode] || 'Nearby'}`,
     };
   });
 }
@@ -1312,9 +1473,9 @@ function renderNeighborhoodExploreView() {
   const events = deriveEvents({ includeExpired: false });
   const hasFocus = activeSector !== 'all';
 
-  const ordered = hasFocus
+  const ordered = (hasFocus
     ? [activeSector, ...sectors.filter(sector => sector !== activeSector)]
-    : sectors;
+    : sectors).slice(0, hasFocus ? 3 : 4);
 
   neighborhoodExploreView.innerHTML = `
     <div class="neighborhood-explore-grid">

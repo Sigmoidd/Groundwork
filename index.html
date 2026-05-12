@@ -5,7 +5,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Groundwork OKC</title>
-<meta content="Groundwork dignifies the city by making it legible to everyone who lives in it. Map water, restrooms, outlets, shade, gardens, fishing spots, and civic resources in Oklahoma City." name="description"/>
+<meta content="Be the change, do the Groundwork; make the city dignify humans again. Explore civic basics, free things, and what is happening nearby in Oklahoma City." name="description"/>
 <link crossorigin="" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
 <link href="assets/styles.css" rel="stylesheet"/>
 </head>
@@ -13,22 +13,22 @@
 <header class="topbar">
 <div>
 <p class="eyebrow">GROUNDWORK OKC</p>
-<h1>Groundwork dignifies the city.</h1>
-<p class="lede">A local-first civic map for water, restrooms, outlets, shade, gardens, fishing spots, and neighborhood care in Oklahoma City. Public pins live on the open map. Group submaps keep fishing crews, planting teams, cleanup routes, and trusted networks scoped to the people who need them.</p>
+<h1>Be the change, do the Groundwork.</h1>
+<p class="lede">Make the city dignify humans again. Groundwork brings together civic basics, neighborhood care, and things to do so people can move through Oklahoma City with more ease.</p>
 </div>
 <div class="hero-actions">
-<a class="button primary" href="#map">Open live map</a>
+<a class="button primary" href="#map">Open explore</a>
 <a class="button" href="#planner">Open planner</a>
 <a class="button" href="#groups">Groups</a>
 </div>
 </header>
 <nav aria-label="Primary" class="tabs">
-<a class="tab is-active" data-route="map" href="#map">Map</a>
+<a class="tab is-active" data-route="map" href="#map">Explore</a>
 <a class="tab" data-route="jobs" href="#jobs">Jobs</a>
 <a class="tab" data-route="events" href="#events">Events</a>
 <a class="tab" data-route="planner" href="#planner">Planner</a>
 <a class="tab" data-route="groups" href="#groups">Groups</a>
-<a class="tab" data-route="secure" href="#secure">Secure</a>
+<a class="tab" data-route="secure" href="#secure">Profile</a>
 <a class="tab" data-route="inbox" href="#inbox">Inbox</a>
 <a class="tab" data-route="relays" href="#relays">Relays</a>
 <a class="tab" data-route="about" href="#about">About</a>
@@ -54,7 +54,7 @@
 <div class="city-stage-copy compact-copy">
 <p class="city-stage-kicker">EXPLORE OKC</p>
 <h2 class="city-stage-title" id="cityHeroTitle">Oklahoma City</h2>
-<p class="city-stage-body" id="cityHeroCopy">Free things, civic basics, and what is happening nearby.</p>
+<p class="city-stage-body" id="cityHeroCopy">Be the change, do the Groundwork; make the city dignify humans again.</p>
 </div>
 </div>
 <div aria-label="Neighborhoods" class="neighborhood-carousel" id="neighborhoodCarousel"></div>
@@ -64,6 +64,25 @@
 </div>
 <div aria-label="Find something to do" class="intent-rows compact-intent-rows" id="intentRows"></div>
 <div aria-label="Travel mode" class="travel-mode-rows" id="travelModeRows"></div>
+<div aria-live="polite" class="travel-cost-strip" id="travelCostStrip"></div>
+<div class="home-base-panel" id="homeBasePanel">
+  <div class="home-base-copy">
+    <p class="eyebrow">RIDE RANGE</p>
+    <h3>Plan from here</h3>
+    <p id="homeBaseCopy">Defaulting to scooter / e-bike. Use browser location now or save a home base that stays on this device.</p>
+  </div>
+  <div class="home-base-actions inline-actions wrap">
+    <button class="button small" id="useBrowserLocationButton" type="button">Use browser location now</button>
+    <button class="button small" id="setHomeBaseButton" type="button">Set home base</button>
+    <button class="button small" id="clearHomeBaseButton" type="button">Clear</button>
+  </div>
+  <div class="home-base-status" id="homeBaseStatus" aria-live="polite"></div>
+  <label class="range-label" for="comfortRadiusInput">
+    Scooter / e-bike comfort radius
+    <input id="comfortRadiusInput" type="range" min="1" max="12" step="0.5" value="3" />
+    <div class="range-meta"><strong id="comfortRadiusValue">3.0 mi</strong><span>round-trip comfort planning, local only</span></div>
+  </label>
+</div>
 <div class="section-headline compact-headline">
 <h3>Top plans</h3>
 <p>Quick options with real places and photos.</p>
@@ -534,11 +553,12 @@
 <section class="panel">
 <div class="panel-head">
 <div>
-<p class="eyebrow">SECURE IDENTITY</p>
+<p class="eyebrow">PROFILE</p>
 <h2>Your contact card</h2>
 </div>
 </div>
 <div class="identity-card" id="identityCard"></div>
+<div class="identity-card lifetime-card" id="lifetimeCostCard" aria-live="polite"></div>
 <div class="stack compact">
 <button class="button" id="regenIdentityButton" type="button">Rotate local identity</button>
 <button class="button" id="copyTrustPhraseButton" type="button">Copy trust phrase</button>

@@ -102,7 +102,7 @@ const NEIGHBORHOOD_MEDIA = {
   },
   'all': {
     image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,h_800,q_65,w_639/v1/clients/oklahoma/DJI_0038_Enhanced_NR_9828fabc-3956-4192-b353-a1bbf8313248.jpg',
-    vibe: 'Free things, civic basics, and what is happening nearby.'
+    vibe: 'Be the change, do the Groundwork; make the city dignify humans again.'
   }
 };
 
@@ -115,7 +115,7 @@ const INTENT_OPTIONS = [
 
 const TRAVEL_OPTIONS = [
   { id: 'foot', title: 'Foot', copy: 'Keep it close and easy.' },
-  { id: 'scooter', title: 'Scooter / e-bike', copy: 'Stretch out without range stress.' },
+  { id: 'scooter', title: 'Scooter / e-bike', copy: 'Default mode. Plan around your comfort radius.' },
   { id: 'car', title: 'Car', copy: 'Wider radius and destination density.' },
 ];
 
@@ -129,7 +129,8 @@ let pendingLocation = null;
 let pendingMarker = null;
 let currentThread = null;
 let activeIntent = 'all';
-let activeTravelMode = 'foot';
+let activeTravelMode = 'scooter';
+let currentBrowseLocation = null;
 let mapPreviewOpen = false;
 
 const routes = ['map', 'jobs', 'events', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
@@ -169,6 +170,16 @@ const cityHeroCopy = document.getElementById('cityHeroCopy');
 const intentRows = document.getElementById('intentRows');
 const topPlansStrip = document.getElementById('topPlansStrip');
 const travelModeRows = document.getElementById('travelModeRows');
+const homeBasePanel = document.getElementById('homeBasePanel');
+const homeBaseCopy = document.getElementById('homeBaseCopy');
+const homeBaseStatus = document.getElementById('homeBaseStatus');
+const useBrowserLocationButton = document.getElementById('useBrowserLocationButton');
+const setHomeBaseButton = document.getElementById('setHomeBaseButton');
+const clearHomeBaseButton = document.getElementById('clearHomeBaseButton');
+const comfortRadiusInput = document.getElementById('comfortRadiusInput');
+const comfortRadiusValue = document.getElementById('comfortRadiusValue');
+const travelCostStrip = document.getElementById('travelCostStrip');
+const lifetimeCostCard = document.getElementById('lifetimeCostCard');
 const featuredEventsPreview = document.getElementById('featuredEventsPreview');
 const civicBasicsStrip = document.getElementById('civicBasicsStrip');
 const mapPreviewToggle = document.getElementById('mapPreviewToggle');
@@ -227,6 +238,59 @@ function normalizeState(parsed) {
     groups: Array.isArray(parsed.groups) ? parsed.groups : [],
     relays: normalizeRelays(parsed.relays),
     events: Array.isArray(parsed.events) ? parsed.events : [],
+    preferences: normalizePreferences(parsed.preferences),
+  };
+}
+
+
+function normalizePreferences(preferences) {
+  const source = preferences && typeof preferences === 'object' ? preferences : {};
+  const sourceLifetime = source.lifetimeStats && typeof source.lifetimeStats === 'object' ? source.lifetimeStats : {};
+  const sourceCost = source.costProfile && typeof source.costProfile === 'object' ? source.costProfile : {};
+  return {
+    comfortRadiusMiles: Number.isFinite(Number(source.comfortRadiusMiles)) ? Number(source.comfortRadiusMiles) : 3,
+    homeBase: source.homeBase && Number.isFinite(Number(source.homeBase.lat)) && Number.isFinite(Number(source.homeBase.lng))
+      ? {
+          lat: Number(source.homeBase.lat),
+          lng: Number(source.homeBase.lng),
+          label: String(source.homeBase.label || 'Home base'),
+          address: String(source.homeBase.address || ''),
+        }
+      : null,
+    costProfile: {
+      gasPricePerGallon: Number.isFinite(Number(sourceCost.gasPricePerGallon)) ? Number(sourceCost.gasPricePerGallon) : 3.25,
+      carMpg: Number.isFinite(Number(sourceCost.carMpg)) ? Number(sourceCost.carMpg) : 25,
+      carMaintenancePerMile: Number.isFinite(Number(sourceCost.carMaintenancePerMile)) ? Number(sourceCost.carMaintenancePerMile) : 0.12,
+      carRoadwayBurdenPerMile: Number.isFinite(Number(sourceCost.carRoadwayBurdenPerMile)) ? Number(sourceCost.carRoadwayBurdenPerMile) : 0.08,
+      rideWhPerMile: Number.isFinite(Number(sourceCost.rideWhPerMile)) ? Number(sourceCost.rideWhPerMile) : 22,
+      electricityPricePerKwh: Number.isFinite(Number(sourceCost.electricityPricePerKwh)) ? Number(sourceCost.electricityPricePerKwh) : 0.158,
+      rideMaintenancePerMile: Number.isFinite(Number(sourceCost.rideMaintenancePerMile)) ? Number(sourceCost.rideMaintenancePerMile) : 0.03,
+      rideRoadwayBurdenPerMile: Number.isFinite(Number(sourceCost.rideRoadwayBurdenPerMile)) ? Number(sourceCost.rideRoadwayBurdenPerMile) : 0.005,
+    },
+    lifetimeStats: {
+      tripsLogged: Number.isFinite(Number(sourceLifetime.tripsLogged)) ? Number(sourceLifetime.tripsLogged) : 0,
+      totalDistanceMiles: Number.isFinite(Number(sourceLifetime.totalDistanceMiles)) ? Number(sourceLifetime.totalDistanceMiles) : 0,
+      userCost: Number.isFinite(Number(sourceLifetime.userCost)) ? Number(sourceLifetime.userCost) : 0,
+      roadwayBurden: Number.isFinite(Number(sourceLifetime.roadwayBurden)) ? Number(sourceLifetime.roadwayBurden) : 0,
+      totalImpact: Number.isFinite(Number(sourceLifetime.totalImpact)) ? Number(sourceLifetime.totalImpact) : 0,
+      savedVsCar: Number.isFinite(Number(sourceLifetime.savedVsCar)) ? Number(sourceLifetime.savedVsCar) : 0,
+      byMode: {
+        foot: normalizeModeStats(sourceLifetime.byMode?.foot),
+        scooter: normalizeModeStats(sourceLifetime.byMode?.scooter),
+        car: normalizeModeStats(sourceLifetime.byMode?.car),
+      },
+    },
+  };
+}
+
+function normalizeModeStats(stats) {
+  const source = stats && typeof stats === 'object' ? stats : {};
+  return {
+    trips: Number.isFinite(Number(source.trips)) ? Number(source.trips) : 0,
+    distanceMiles: Number.isFinite(Number(source.distanceMiles)) ? Number(source.distanceMiles) : 0,
+    userCost: Number.isFinite(Number(source.userCost)) ? Number(source.userCost) : 0,
+    roadwayBurden: Number.isFinite(Number(source.roadwayBurden)) ? Number(source.roadwayBurden) : 0,
+    totalImpact: Number.isFinite(Number(source.totalImpact)) ? Number(source.totalImpact) : 0,
   };
 }
 
@@ -408,6 +472,8 @@ function wireForms() {
     renderNeighborhoodCarousel();
     renderIntentRows();
     renderTravelModeRows();
+    renderTravelCostStrip();
+    renderHomeBasePanel();
     renderTopPlans();
     renderFeaturedEventsPreview();
     renderCivicBasicsStrip();
@@ -429,6 +495,8 @@ function wireForms() {
     renderNeighborhoodCarousel();
     renderIntentRows();
     renderTravelModeRows();
+    renderTravelCostStrip();
+    renderHomeBasePanel();
     renderTopPlans();
     renderFeaturedEventsPreview();
     renderCivicBasicsStrip();
@@ -446,6 +514,8 @@ function wireForms() {
     renderCityStage();
     renderIntentRows();
     renderTravelModeRows();
+    renderTravelCostStrip();
+    renderHomeBasePanel();
     renderTopPlans();
     renderFeaturedEventsPreview();
     renderCivicBasicsStrip();
@@ -458,10 +528,41 @@ function wireForms() {
     activeTravelMode = button.dataset.travelMode || 'foot';
     renderCityStage();
     renderTravelModeRows();
+    renderTravelCostStrip();
+    renderHomeBasePanel();
     renderTopPlans();
     renderFeaturedEventsPreview();
     renderCivicBasicsStrip();
     renderNeighborhoodExploreView();
+    renderResources();
+    renderMap();
+    renderEvents();
+  });
+
+
+
+  useBrowserLocationButton?.addEventListener('click', handleUseBrowserLocation);
+  setHomeBaseButton?.addEventListener('click', handleSetHomeBase);
+  clearHomeBaseButton?.addEventListener('click', () => {
+    currentBrowseLocation = null;
+    state.preferences.homeBase = null;
+    persist();
+    render();
+    toastMessage('Local home base cleared.');
+  });
+  comfortRadiusInput?.addEventListener('input', event => {
+    const value = Number(event.target.value || 3);
+    state.preferences.comfortRadiusMiles = value;
+    persist();
+    renderHomeBasePanel();
+    renderTravelCostStrip();
+    renderTopPlans();
+    renderFeaturedEventsPreview();
+    renderCivicBasicsStrip();
+    renderNeighborhoodExploreView();
+    renderResources();
+    renderMap();
+    renderEvents();
   });
 
   mapPreviewToggle?.addEventListener('click', () => {
@@ -485,6 +586,8 @@ function wireForms() {
     renderNeighborhoodCarousel();
     renderIntentRows();
     renderTravelModeRows();
+    renderTravelCostStrip();
+    renderHomeBasePanel();
     renderTopPlans();
     renderFeaturedEventsPreview();
     renderCivicBasicsStrip();
@@ -1056,7 +1159,9 @@ function render() {
   renderNeighborhoodCarousel();
   renderIntentRows();
   renderTravelModeRows();
-  renderTopPlans();
+  renderTravelCostStrip();
+  renderHomeBasePanel();
+  renderTopPlansStrip();
   renderFeaturedEventsPreview();
   renderCivicBasicsStrip();
   renderMapPreview();
@@ -1106,6 +1211,7 @@ function getFilteredResources() {
       const sectorOk = sectorValue === 'all' || item.sector === sectorValue;
       return scopeOk && typeOk && sectorOk;
     })
+    .filter(passesTravelFilter)
     .sort((a, b) => getResourcePriorityScore(b) - getResourcePriorityScore(a));
 }
 
@@ -1122,6 +1228,8 @@ function getResourcePriorityScore(item) {
   if (activeTravelMode === 'foot' && ['water','restroom','shade'].includes(item.resource)) score += 2;
   if (activeTravelMode === 'scooter' && ['bike_rack','outlet','water','shade'].includes(item.resource)) score += 3;
   if (activeTravelMode === 'car' && ['restroom','trash_can','outlet'].includes(item.resource)) score += 1;
+  const distance = getDistanceFromReference(item);
+  if (distance != null) score += Math.max(0, 4 - distance);
   return score;
 }
 
@@ -1217,7 +1325,7 @@ function renderCityStage() {
   const media = getNeighborhoodMedia(focusedSector || 'all');
 
   if (cityHeroTitle) {
-    cityHeroTitle.textContent = focusedSector || 'Oklahoma City';
+    cityHeroTitle.textContent = (focusedSector === 'Downtown' ? 'Bricktown' : focusedSector) || 'Oklahoma City';
   }
 
   if (cityHeroCopy) {
@@ -1246,19 +1354,296 @@ function renderIntentRows() {
   `).join('');
 }
 
+
+function renderHomeBasePanel() {
+  if (!homeBasePanel) return;
+
+  const comfort = getComfortRadiusMiles();
+  const reference = getReferencePoint();
+  const isScooter = activeTravelMode === 'scooter';
+
+  homeBasePanel.classList.toggle('is-scooter-mode', isScooter);
+  if (comfortRadiusInput) comfortRadiusInput.value = String(comfort);
+  if (comfortRadiusValue) comfortRadiusValue.textContent = `${comfort.toFixed(1)} mi`;
+
+  if (homeBaseCopy) {
+    homeBaseCopy.textContent = isScooter
+      ? 'Defaulting to scooter / e-bike. Use browser location now or save a home base that stays on this device.'
+      : 'You can still keep a local home base for planning. It never goes to the relay.';
+  }
+
+  if (homeBaseStatus) {
+    if (reference) {
+      const modeLabel = currentBrowseLocation ? 'Using browser location now' : 'Saved home base';
+      homeBaseStatus.innerHTML = `
+        <strong>${escapeHtml(reference.label || modeLabel)}</strong>
+        <span>${escapeHtml(reference.address || modeLabel)}</span>
+      `;
+    } else {
+      homeBaseStatus.innerHTML = '<strong>No home set</strong><span>Set one for local-only ride planning.</span>';
+    }
+  }
+}
+
+function getComfortRadiusMiles() {
+  return Number(state.preferences?.comfortRadiusMiles || 3);
+}
+
+function getReferencePoint() {
+  return currentBrowseLocation || state.preferences?.homeBase || null;
+}
+
+async function handleUseBrowserLocation() {
+  if (!navigator.geolocation) {
+    toastMessage('Browser location unavailable.');
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(async position => {
+    const lat = roundCoord(position.coords.latitude);
+    const lng = roundCoord(position.coords.longitude);
+    let label = 'Current location';
+    let address = '';
+    try {
+      const reverse = await reverseGeocodePoint(lat, lng);
+      label = reverse.placeName || label;
+      address = reverse.address || '';
+    } catch (error) {
+      console.warn(error);
+    }
+    currentBrowseLocation = { lat, lng, label, address };
+    render();
+    toastMessage('Using browser location for Explore.');
+  }, () => toastMessage('Could not get browser location.'), { enableHighAccuracy: true, timeout: 7000 });
+}
+
+async function handleSetHomeBase() {
+  if (!navigator.geolocation) {
+    toastMessage('Browser location unavailable.');
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(async position => {
+    const lat = roundCoord(position.coords.latitude);
+    const lng = roundCoord(position.coords.longitude);
+    let label = 'Home base';
+    let address = '';
+    try {
+      const reverse = await reverseGeocodePoint(lat, lng);
+      label = reverse.placeName || label;
+      address = reverse.address || '';
+    } catch (error) {
+      console.warn(error);
+    }
+
+    state.preferences.homeBase = { lat, lng, label, address };
+    currentBrowseLocation = null;
+    persist();
+    render();
+    toastMessage('Home base saved locally on this device.');
+  }, () => toastMessage('Could not set home base.'), { enableHighAccuracy: true, timeout: 7000 });
+}
+
+function distanceMiles(pointA, pointB) {
+  const toRad = value => (value * Math.PI) / 180;
+  const earthRadiusMiles = 3958.8;
+  const dLat = toRad(pointB.lat - pointA.lat);
+  const dLng = toRad(pointB.lng - pointA.lng);
+  const lat1 = toRad(pointA.lat);
+  const lat2 = toRad(pointB.lat);
+
+  const a = Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusMiles * c;
+}
+
+function getTravelLimitMiles() {
+  if (activeTravelMode === 'foot') return 1.2;
+  if (activeTravelMode === 'scooter') return getComfortRadiusMiles();
+  return Infinity;
+}
+
+function getDistanceFromReference(item) {
+  const reference = getReferencePoint();
+  if (!reference) return null;
+  const [lat, lng] = resolveCoords(item);
+  return distanceMiles(reference, { lat, lng });
+}
+
+function passesTravelFilter(item) {
+  const distance = getDistanceFromReference(item);
+  if (distance == null) return true;
+  return distance <= getTravelLimitMiles();
+}
+
 function renderTravelModeRows() {
   if (!travelModeRows) return;
 
-  travelModeRows.innerHTML = TRAVEL_OPTIONS.map(option => `
+  travelModeRows.innerHTML = TRAVEL_OPTIONS.map(option => {
+    const meta = option.id === 'scooter' ? `${getComfortRadiusMiles().toFixed(1)} mi comfort radius` : option.copy;
+    return `
     <button
       type="button"
       class="travel-chip ${option.id === activeTravelMode ? 'is-active' : ''}"
       data-travel-mode="${escapeAttribute(option.id)}"
     >
       <strong>${escapeHtml(option.title)}</strong>
-      <span>${escapeHtml(option.copy)}</span>
+      <span>${escapeHtml(meta)}</span>
     </button>
-  `).join('');
+  `}).join('');
+}
+
+function getCurrentTripCandidate() {
+  const candidates = [];
+  getFilteredEvents().forEach(item => {
+    const distance = getDistanceFromReference(item);
+    if (distance == null) return;
+    candidates.push({ type: 'event', item, distance, priority: isEventLive(item) ? 4 : 3 });
+  });
+  getFilteredResources().forEach(item => {
+    const distance = getDistanceFromReference(item);
+    if (distance == null) return;
+    candidates.push({ type: 'resource', item, distance, priority: 2 + getResourcePriorityScore(item) / 10 });
+  });
+  if (!candidates.length) {
+    const focused = getFocusedSector();
+    if (!focused || !SECTOR_COORDS[focused]) return null;
+    const [lat, lng] = SECTOR_COORDS[focused];
+    const distance = getReferencePoint() ? distanceMiles(getReferencePoint(), { lat, lng }) : null;
+    return distance == null ? null : {
+      label: visibleSectorName(focused),
+      distanceMiles: distance,
+      kind: 'neighborhood',
+    };
+  }
+  candidates.sort((a, b) => (b.priority - a.priority) || (a.distance - b.distance));
+  const best = candidates[0];
+  return {
+    label: best.type === 'event' ? (best.item.title || best.item.placeName || 'Nearby event') : (best.item.placeName || best.item.note || 'Nearby stop'),
+    distanceMiles: best.distance,
+    kind: best.type,
+  };
+}
+
+function estimateTripCosts(distanceMilesValue, mode) {
+  const profile = state.preferences.costProfile;
+  const distance = Math.max(0, Number(distanceMilesValue) || 0) * 2;
+  if (mode === 'foot') {
+    return { distanceMiles: distance, personalCost: 0, roadwayBurden: 0, totalImpact: 0 };
+  }
+  if (mode === 'scooter') {
+    const energyCostPerMile = (profile.rideWhPerMile / 1000) * profile.electricityPricePerKwh;
+    const personalCost = distance * (energyCostPerMile + profile.rideMaintenancePerMile);
+    const roadwayBurden = distance * profile.rideRoadwayBurdenPerMile;
+    return { distanceMiles: distance, personalCost, roadwayBurden, totalImpact: personalCost + roadwayBurden };
+  }
+  const fuelCostPerMile = profile.gasPricePerGallon / profile.carMpg;
+  const personalCost = distance * (fuelCostPerMile + profile.carMaintenancePerMile);
+  const roadwayBurden = distance * profile.carRoadwayBurdenPerMile;
+  return { distanceMiles: distance, personalCost, roadwayBurden, totalImpact: personalCost + roadwayBurden };
+}
+
+function getCurrentTripEstimate() {
+  const candidate = getCurrentTripCandidate();
+  if (!candidate) return null;
+  const active = estimateTripCosts(candidate.distanceMiles, activeTravelMode);
+  const car = estimateTripCosts(candidate.distanceMiles, 'car');
+  return {
+    candidate,
+    active,
+    car,
+    savingsVsCar: Math.max(0, car.totalImpact - active.totalImpact),
+  };
+}
+
+function renderTravelCostStrip() {
+  if (!travelCostStrip) return;
+  const estimate = getCurrentTripEstimate();
+  if (!estimate) {
+    travelCostStrip.innerHTML = `
+      <div class="travel-cost-head">
+        <div>
+          <h4>Estimated trip cost</h4>
+          <p>Use browser location or your local home base to compare travel costs and city burden.</p>
+        </div>
+      </div>
+      <div class="travel-cost-footnote">No reference point yet. Groundwork keeps exact home on this device only.</div>
+    `;
+    return;
+  }
+  const activeLabel = activeTravelMode === 'scooter' ? 'Scooter / e-bike' : activeTravelMode === 'car' ? 'Car' : 'Foot';
+  travelCostStrip.innerHTML = `
+    <div class="travel-cost-head">
+      <div>
+        <h4>Estimated round-trip cost</h4>
+        <p>${escapeHtml(activeLabel)} to ${escapeHtml(estimate.candidate.label)} · about ${formatMiles(estimate.active.distanceMiles)}</p>
+      </div>
+      <button class="button small" type="button" data-log-trip>Log this trip</button>
+    </div>
+    <div class="travel-cost-grid">
+      <div class="travel-cost-metric"><strong>${formatMoney(estimate.active.personalCost)}</strong><span>Cost to you</span></div>
+      <div class="travel-cost-metric"><strong>${formatMoney(estimate.active.roadwayBurden)}</strong><span>Cost to the city</span></div>
+      <div class="travel-cost-metric"><strong>${formatMoney(estimate.active.totalImpact)}</strong><span>Total impact</span></div>
+      <div class="travel-cost-metric"><strong>${formatMoney(estimate.savingsVsCar)}</strong><span>Save vs car</span></div>
+    </div>
+    <div class="travel-cost-actions">
+      <div class="travel-cost-footnote">Roadway burden includes resurfacing wear. Car impact is heavier than scooters, bikes, or walking.</div>
+      ${activeTravelMode !== 'car' ? '<button class="button small" type="button" data-switch-mode="car">Compare as car</button>' : ''}
+    </div>
+  `;
+}
+
+function logCurrentTripEstimate() {
+  const estimate = getCurrentTripEstimate();
+  if (!estimate) {
+    toastMessage('Set a location first so Groundwork can estimate the trip.');
+    return;
+  }
+  const stats = state.preferences.lifetimeStats;
+  const modeStats = stats.byMode[activeTravelMode] || normalizeModeStats();
+  stats.tripsLogged += 1;
+  stats.totalDistanceMiles += estimate.active.distanceMiles;
+  stats.userCost += estimate.active.personalCost;
+  stats.roadwayBurden += estimate.active.roadwayBurden;
+  stats.totalImpact += estimate.active.totalImpact;
+  stats.savedVsCar += estimate.savingsVsCar;
+  modeStats.trips += 1;
+  modeStats.distanceMiles += estimate.active.distanceMiles;
+  modeStats.userCost += estimate.active.personalCost;
+  modeStats.roadwayBurden += estimate.active.roadwayBurden;
+  modeStats.totalImpact += estimate.active.totalImpact;
+  stats.byMode[activeTravelMode] = modeStats;
+  persist();
+  renderTravelCostStrip();
+  renderIdentity();
+  toastMessage('Trip added to your lifetime stats.');
+}
+
+function renderLifetimeCostCard() {
+  if (!lifetimeCostCard) return;
+  const stats = state.preferences.lifetimeStats;
+  lifetimeCostCard.innerHTML = `
+    <div class="card-head">
+      <div>
+        <h3 class="card-title">Lifetime travel stats</h3>
+        <p class="card-subtitle">Saved locally on this device from the trips you log in Explore.</p>
+      </div>
+      <span class="badge">${stats.tripsLogged} trips</span>
+    </div>
+    <div class="lifetime-grid">
+      <div class="lifetime-metric"><strong>${formatMiles(stats.totalDistanceMiles)}</strong><span>Total distance</span></div>
+      <div class="lifetime-metric"><strong>${formatMoney(stats.userCost)}</strong><span>Cost to you</span></div>
+      <div class="lifetime-metric"><strong>${formatMoney(stats.roadwayBurden)}</strong><span>Cost to the city</span></div>
+      <div class="lifetime-metric"><strong>${formatMoney(stats.savedVsCar)}</strong><span>Saved vs car</span></div>
+    </div>
+    <div class="mode-breakdown">
+      ${['foot','scooter','car'].map(mode => {
+        const row = stats.byMode[mode] || normalizeModeStats();
+        const label = mode === 'scooter' ? 'Scooter / e-bike' : mode === 'car' ? 'Car' : 'Foot';
+        return `<div class="mode-row"><div><strong>${escapeHtml(label)}</strong><div class="mode-row-label">${row.trips} trips · ${formatMiles(row.distanceMiles)}</div></div><div><strong>${formatMoney(row.totalImpact)}</strong><div class="mode-row-label">total impact</div></div></div>`;
+      }).join('')}
+    </div>
+  `;
 }
 
 function renderFeaturedEventsPreview() {
@@ -1358,7 +1743,7 @@ function getIntentLeadCopy(focusedSector, intent, fallbackVibe) {
   const travelMap = { foot: 'on foot', scooter: 'by scooter or e-bike', car: 'by car' };
   const travelText = travelMap[activeTravelMode] || 'nearby';
   const map = {
-    all: `Free things, civic basics, and what is happening nearby in ${place}, ${travelText}.`,
+    all: `Be the change, do the Groundwork; make the city dignify humans again in ${place}, ${travelText}.`,
     entertainment: `Entertainment-first picks in ${place}: easy hangs, scenic stops, and a light day out ${travelText}.`,
     interaction: `Groups, events, and social energy in ${place}, tuned for moving ${travelText}.`,
     purpose: `Useful moves in ${place}: volunteering, stewardship, small jobs, and places that help people ${travelText}.`,
@@ -1442,7 +1827,7 @@ function renderNeighborhoodCarousel() {
   neighborhoodCarousel.classList.toggle('has-focus', hasFocus);
   neighborhoodCarousel.innerHTML = sectors.map(sector => {
     const isActive = sector === activeSector;
-    const label = sector === 'all' ? 'All neighborhoods' : sector;
+    const label = sector === 'all' ? 'All neighborhoods' : (sector === 'Downtown' ? 'Bricktown' : sector);
     const resourceCount = sector === 'all'
       ? allResources.length
       : allResources.filter(item => item.sector === sector).length;
@@ -1497,7 +1882,7 @@ function renderNeighborhoodExploreView() {
             <div class="neighborhood-card-overlay"></div>
             <div class="neighborhood-card-body">
               <div>
-                <h3 class="neighborhood-card-title">${escapeHtml(sector)}</h3>
+                <h3 class="neighborhood-card-title">${escapeHtml(sector === 'Downtown' ? 'Bricktown' : sector)}</h3>
                 <div class="neighborhood-card-meta">
                   <span>${resourceCount} pins</span>
                   <span>${eventCount} events</span>
@@ -1522,7 +1907,10 @@ function buildNeighborhoodSummary(sector, topResources, topEvents) {
   const eventText = topEvents.length
     ? ` Next event: ${topEvents[0].title}.`
     : ' No upcoming events yet.';
-  return `${sector} focus.${resourceText}${eventText}`;
+  const sectorCenter = SECTOR_COORDS[sector] ? { lat: SECTOR_COORDS[sector][0], lng: SECTOR_COORDS[sector][1] } : null;
+  const reference = getReferencePoint();
+  const distanceText = reference && sectorCenter ? ` About ${distanceMiles(reference, sectorCenter).toFixed(1)} mi away.` : '';
+  return `${sector} focus.${resourceText}${eventText}${distanceText}`;
 }
 
 function renderNeighborhoodPolygons() {
@@ -1637,6 +2025,7 @@ function renderIdentity() {
     <p class="card-subtitle">Use this phrase to verify you are talking to the same person and device.</p>
     <div class="qr-grid">${buildQrCells(state.identity.deviceId)}</div>
   `;
+  renderLifetimeCostCard();
 }
 
 function renderContacts() {
@@ -2937,6 +3326,20 @@ function readFileAsDataUrl(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function formatMoney(value) {
+  const amount = Number(value) || 0;
+  return `$${amount.toFixed(2)}`;
+}
+
+function formatMiles(value) {
+  const miles = Number(value) || 0;
+  return `${miles.toFixed(1)} mi`;
+}
+
+function visibleSectorName(value) {
+  return value === 'Downtown' ? 'Bricktown' : value;
 }
 
 function escapeHtml(value) {

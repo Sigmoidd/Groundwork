@@ -104,6 +104,11 @@ button, input, select, textarea { font: inherit; }
   border-color: var(--green-dark);
 }
 
+.button.danger {
+  border-color: rgba(255, 129, 129, 0.5);
+  color: #ffb8b8;
+}
+
 .button.small {
   padding: 8px 12px;
   font-size: 0.92rem;
@@ -629,6 +634,14 @@ textarea { resize: vertical; }
   border: 1px solid var(--border);
   object-fit: cover;
   max-height: 260px;
+}
+
+.photo-first input {
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px dashed rgba(126, 211, 134, 0.45);
+  border-radius: 14px;
+  background: rgba(126, 211, 134, 0.08);
 }
 
 .identity-card, .callout, .code-block {

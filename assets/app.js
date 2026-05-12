@@ -10,6 +10,8 @@ const RELAY_KIND_TO_LOCAL = {
   resource_pin_rated: 'resource.pin.rated',
   resource_pin_noted: 'resource.pin.noted',
   resource_pin_photo_added: 'resource.pin.photo.added',
+  resource_pin_updated: 'resource.pin.updated',
+  resource_pin_removed: 'resource.pin.removed',
   event_pin: 'event.pin.add',
   job_posted: 'job.posted',
   planting_request: 'planner.requested',
@@ -22,6 +24,8 @@ const LOCAL_KIND_TO_RELAY = {
   'resource.pin.rated': 'resource_pin_rated',
   'resource.pin.noted': 'resource_pin_noted',
   'resource.pin.photo.added': 'resource_pin_photo_added',
+  'resource.pin.updated': 'resource_pin_updated',
+  'resource.pin.removed': 'resource_pin_removed',
   'event.pin.add': 'event_pin',
   'job.posted': 'job_posted',
   'planner.requested': 'planting_request',
@@ -132,6 +136,7 @@ let activeIntent = 'all';
 let activeTravelMode = 'scooter';
 let currentBrowseLocation = null;
 let mapPreviewOpen = false;
+let editingResourceId = null;
 
 const routes = ['map', 'jobs', 'events', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
 const tabEls = Array.from(document.querySelectorAll('.tab'));
@@ -1008,6 +1013,14 @@ function toRelayEvent(event) {
     relayEvent.recipient = event.payload.groupId;
   }
 
+  if (event.kind === 'resource.pin.updated' || event.kind === 'resource.pin.removed') {
+    relayEvent.tile = event.payload?.resourceId ? `okc:resource:${event.payload.resourceId}` : relayEvent.tile;
+    if (event.payload?.groupId) {
+      relayEvent.scope = 'private';
+      relayEvent.recipient = event.payload.groupId;
+    }
+  }
+
   if (event.kind === 'dm.sent') {
     relayEvent.scope = 'private';
     relayEvent.recipient = event.payload.toAlias;
@@ -1057,6 +1070,7 @@ function deriveResources() {
     .map(event => normalizeResourceRecord({
       ...event.payload,
       id: event.id,
+      author: event.author,
       createdAt: event.createdAt,
     }))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -1114,12 +1128,30 @@ function deriveResources() {
         break;
       }
 
+      case 'resource.pin.updated': {
+        const updates = payload.updates || {};
+        Object.assign(resource, normalizeResourceRecord({
+          ...resource,
+          ...updates,
+          id: resource.id,
+          createdAt: resource.createdAt,
+          updatedAt: event.createdAt,
+        }));
+        break;
+      }
+
+      case 'resource.pin.removed':
+        resource.removedAt = event.createdAt;
+        break;
+
       default:
         break;
     }
   });
 
-  return Array.from(byId.values()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return Array.from(byId.values())
+    .filter(resource => !resource.removedAt)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 function deriveEvents(options = {}) {
@@ -2284,7 +2316,7 @@ async function handleResourceSubmit(event) {
   const scopeValue = fd.get('scope') || 'public';
   const groupId = scopeValue === 'public' ? null : scopeValue;
 
-  appendEvent('resource.pin.add', {
+  const resourcePayload = {
     resource: fd.get('resource'),
     sector,
     access: fd.get('access'),
@@ -2301,16 +2333,33 @@ async function handleResourceSubmit(event) {
       wheelchairAccess: String(fd.get('wheelchairAccess') || 'unknown'),
       pathSurface: String(fd.get('pathSurface') || 'unknown'),
     },
-  });
+  };
+
+  const wasEditing = Boolean(editingResourceId);
+
+  if (wasEditing) {
+    appendEvent('resource.pin.updated', {
+      resourceId: editingResourceId,
+      updates: resourcePayload,
+      groupId,
+      alias: state.identity.alias,
+    });
+  } else {
+    appendEvent('resource.pin.add', resourcePayload);
+  }
 
   form.reset();
+  editingResourceId = null;
   clearPendingLocation();
   resourcePreview.dataset.photo = '';
   resourcePreview.innerHTML = '';
   resourcePreview.classList.add('hidden');
+  const submitButton = resourceForm?.querySelector('button[type="submit"]');
+  if (submitButton) submitButton.textContent = 'Post pin';
   renderResources();
   renderMap();
-  toastMessage('Pin posted locally.');
+  syncWithRelays();
+  toastMessage(wasEditing ? 'Pin updated.' : 'Pin posted locally.');
 }
 
 async function handleEventSubmit(event) {
@@ -2380,6 +2429,7 @@ function handleResourceCardClick(event) {
     });
     renderResources();
     renderMap();
+    syncWithRelays();
     toastMessage('Pin confirmed.');
     return;
   }
@@ -2396,6 +2446,7 @@ function handleResourceCardClick(event) {
     });
     renderResources();
     renderMap();
+    syncWithRelays();
     toastMessage('Rating saved.');
     return;
   }
@@ -2411,6 +2462,7 @@ function handleResourceCardClick(event) {
     });
     renderResources();
     renderMap();
+    syncWithRelays();
     toastMessage('Note added.');
     return;
   }
@@ -2419,6 +2471,16 @@ function handleResourceCardClick(event) {
     const card = button.closest('.card');
     const input = card?.querySelector('[data-resource-photo-input]');
     input?.click();
+    return;
+  }
+
+  if (action === 'edit') {
+    startResourceEdit(resourceId);
+    return;
+  }
+
+  if (action === 'remove') {
+    removeResource(resourceId);
   }
 }
 
@@ -2438,7 +2500,82 @@ async function handleResourceCardChange(event) {
   input.value = '';
   renderResources();
   renderMap();
+  syncWithRelays();
   toastMessage('Photo added.');
+}
+
+function startResourceEdit(resourceId) {
+  const resource = deriveResources().find(item => item.id === resourceId);
+  if (!resource) return;
+
+  if (resource.author !== state.identity.deviceId) {
+    toastMessage('Only pins created on this device can be edited here.');
+    return;
+  }
+
+  editingResourceId = resourceId;
+
+  if (resourceForm) {
+    resourceForm.resource.value = resource.resource || 'water';
+    resourceForm.scope.value = resource.groupId || 'public';
+    resourceForm.sector.value = resource.sector || 'Downtown';
+    resourceForm.access.value = resource.access || 'public';
+    resourceForm.adaStatus.value = resource.accessibility?.adaStatus || 'unknown';
+    resourceForm.wheelchairAccess.value = resource.accessibility?.wheelchairAccess || 'unknown';
+    resourceForm.pathSurface.value = resource.accessibility?.pathSurface || 'unknown';
+    resourceForm.note.value = resource.note || '';
+    resourceForm.locationQuery.value = resource.placeName || resource.address || '';
+    resourceForm.lat.value = resource.lat || '';
+    resourceForm.lng.value = resource.lng || '';
+    resourceForm.placeName.value = resource.placeName || '';
+    resourceForm.address.value = resource.address || '';
+
+    const submitButton = resourceForm.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.textContent = 'Update pin';
+  }
+
+  pendingLocation = Number.isFinite(Number(resource.lat)) && Number.isFinite(Number(resource.lng))
+    ? { lat: Number(resource.lat), lng: Number(resource.lng) }
+    : null;
+  renderPendingMarker();
+  renderSelectedLocationCard(resource.placeName || 'Pinned location', resource.address || '', 'Editing this pin');
+
+  resourcePreview.dataset.photo = resource.photo || '';
+  resourcePreview.innerHTML = resource.photo ? `<img src="${escapeAttribute(resource.photo)}" alt="Resource preview">` : '';
+  resourcePreview.classList.toggle('hidden', !resource.photo);
+
+  window.location.hash = 'map';
+  resourceForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  toastMessage('Editing pin. Update the photo, place, or details.');
+}
+
+function removeResource(resourceId) {
+  const resource = deriveResources().find(item => item.id === resourceId);
+  if (!resource) return;
+
+  if (resource.author !== state.identity.deviceId) {
+    toastMessage('Only pins created on this device can be removed here.');
+    return;
+  }
+
+  if (!window.confirm('Remove this pin from the public map?')) return;
+
+  appendEvent('resource.pin.removed', {
+    resourceId,
+    groupId: resource.groupId || null,
+    alias: state.identity.alias,
+  });
+
+  if (editingResourceId === resourceId) {
+    editingResourceId = null;
+    resourceForm?.reset();
+    clearPendingLocation();
+  }
+
+  renderResources();
+  renderMap();
+  syncWithRelays();
+  toastMessage('Pin removed.');
 }
 
 function handleCreateGroup(event) {
@@ -3045,6 +3182,7 @@ function renderResourceScorecard(resource) {
   const averageRating = ratingCount
     ? (resource.ratings.reduce((sum, entry) => sum + Number(entry.score || 0), 0) / ratingCount).toFixed(1)
     : '—';
+  const canManage = resource.author === state.identity.deviceId;
 
   const photoItems = [
     ...(resource.photo
@@ -3116,6 +3254,10 @@ function renderResourceScorecard(resource) {
         <button class="button small" type="button" data-pin-action="rate" data-resource-id="${escapeAttribute(resource.id)}">Rate pin</button>
         <button class="button small" type="button" data-pin-action="note" data-resource-id="${escapeAttribute(resource.id)}">Add note</button>
         <button class="button small" type="button" data-pin-action="photo" data-resource-id="${escapeAttribute(resource.id)}">Add photo</button>
+        ${canManage ? `
+          <button class="button small" type="button" data-pin-action="edit" data-resource-id="${escapeAttribute(resource.id)}">Edit</button>
+          <button class="button small danger" type="button" data-pin-action="remove" data-resource-id="${escapeAttribute(resource.id)}">Remove</button>
+        ` : ''}
         <input
           class="hidden"
           type="file"

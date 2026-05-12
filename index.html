@@ -165,6 +165,11 @@
 </div>
 </div>
 <form class="stack" id="resourceForm" novalidate="">
+<label class="photo-first">
+              Add photo first
+              <input accept="image/*" capture="environment" name="photo" type="file"/>
+</label>
+<div class="preview hidden" id="resourcePreview"></div>
 <label>
               Resource type
               <select name="resource" required="">
@@ -237,8 +242,8 @@
 </select>
 </label>
 <label>
-              One sentence
-              <input maxlength="140" name="note" placeholder="Water fountain outside west library doors" required="" type="text"/>
+              Short caption
+              <input maxlength="140" name="note" placeholder="Water fountain outside west doors" required="" type="text"/>
 </label>
 <label>
               Attach a place or address
@@ -255,14 +260,9 @@
 <input name="lng" type="hidden"/>
 <input name="placeName" type="hidden"/>
 <input name="address" type="hidden"/>
-<label>
-              Optional photo
-              <input accept="image/*" name="photo" type="file"/>
-</label>
-<div class="preview hidden" id="resourcePreview"></div>
 <button class="button primary" type="submit">Post pin</button>
-<p class="help">Public pins go on the open map. Group-scoped pins stay private on the relay and only appear for group members.</p>
-<p class="help">Search by name or address, or let a photo with EXIF GPS fill the place automatically. If no location is attached yet, Groundwork will ask for one on submit. After posting, people can confirm, rate, note, and attach more photos from each pin card.</p>
+<p class="help">Public pins go on the open map. Group-scoped pins stay private. Photos can fill GPS when available.</p>
+<p class="help">After posting, pins created on this device can be edited or removed from their card.</p>
 </form>
 </aside>
 </div>

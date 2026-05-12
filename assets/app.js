@@ -544,7 +544,28 @@ function wireForms() {
     renderEvents();
   });
 
+  travelCostStrip?.addEventListener('click', event => {
+    const logButton = event.target.closest('[data-log-trip]');
+    if (logButton) {
+      logCurrentTripEstimate();
+      return;
+    }
 
+    const switchButton = event.target.closest('[data-switch-mode]');
+    if (!switchButton) return;
+    activeTravelMode = switchButton.dataset.switchMode || 'car';
+    renderCityStage();
+    renderTravelModeRows();
+    renderTravelCostStrip();
+    renderHomeBasePanel();
+    renderTopPlans();
+    renderFeaturedEventsPreview();
+    renderCivicBasicsStrip();
+    renderNeighborhoodExploreView();
+    renderResources();
+    renderMap();
+    renderEvents();
+  });
 
   useBrowserLocationButton?.addEventListener('click', handleUseBrowserLocation);
   setHomeBaseButton?.addEventListener('click', handleSetHomeBase);
@@ -1393,15 +1414,19 @@ function renderHomeBasePanel() {
   const comfort = getComfortRadiusMiles();
   const reference = getReferencePoint();
   const isScooter = activeTravelMode === 'scooter';
+  const isCar = activeTravelMode === 'car';
 
   homeBasePanel.classList.toggle('is-scooter-mode', isScooter);
+  homeBasePanel.classList.toggle('is-car-mode', isCar);
   if (comfortRadiusInput) comfortRadiusInput.value = String(comfort);
   if (comfortRadiusValue) comfortRadiusValue.textContent = `${comfort.toFixed(1)} mi`;
 
   if (homeBaseCopy) {
-    homeBaseCopy.textContent = isScooter
-      ? 'Defaulting to scooter / e-bike. Use browser location now or save a home base that stays on this device.'
-      : 'You can still keep a local home base for planning. It never goes to the relay.';
+    homeBaseCopy.textContent = isCar
+      ? 'Car mode uses exact trip distance when there is a real nearby destination. Home base stays on this device.'
+      : isScooter
+        ? 'Defaulting to scooter / e-bike. Use browser location now or save a home base that stays on this device.'
+        : 'You can still keep a local home base for planning. It never goes to the relay.';
   }
 
   if (homeBaseStatus) {
@@ -1499,7 +1524,8 @@ function getDistanceFromReference(item) {
   const reference = getReferencePoint();
   if (!reference) return null;
   const [lat, lng] = resolveCoords(item);
-  return distanceMiles(reference, { lat, lng });
+  const distance = distanceMiles(reference, { lat, lng });
+  return Number.isFinite(distance) ? distance : null;
 }
 
 function passesTravelFilter(item) {
@@ -1537,17 +1563,7 @@ function getCurrentTripCandidate() {
     if (distance == null) return;
     candidates.push({ type: 'resource', item, distance, priority: 2 + getResourcePriorityScore(item) / 10 });
   });
-  if (!candidates.length) {
-    const focused = getFocusedSector();
-    if (!focused || !SECTOR_COORDS[focused]) return null;
-    const [lat, lng] = SECTOR_COORDS[focused];
-    const distance = getReferencePoint() ? distanceMiles(getReferencePoint(), { lat, lng }) : null;
-    return distance == null ? null : {
-      label: visibleSectorName(focused),
-      distanceMiles: distance,
-      kind: 'neighborhood',
-    };
-  }
+  if (!candidates.length) return null;
   candidates.sort((a, b) => (b.priority - a.priority) || (a.distance - b.distance));
   const best = candidates[0];
   return {
@@ -1559,7 +1575,9 @@ function getCurrentTripCandidate() {
 
 function estimateTripCosts(distanceMilesValue, mode) {
   const profile = state.preferences.costProfile;
-  const distance = Math.max(0, Number(distanceMilesValue) || 0) * 2;
+  const oneWayDistance = Number(distanceMilesValue);
+  if (!Number.isFinite(oneWayDistance)) return null;
+  const distance = Math.max(0, oneWayDistance) * 2;
   if (mode === 'foot') {
     return { distanceMiles: distance, personalCost: 0, roadwayBurden: 0, totalImpact: 0 };
   }
@@ -1577,9 +1595,10 @@ function estimateTripCosts(distanceMilesValue, mode) {
 
 function getCurrentTripEstimate() {
   const candidate = getCurrentTripCandidate();
-  if (!candidate) return null;
+  if (!candidate || !Number.isFinite(Number(candidate.distanceMiles))) return null;
   const active = estimateTripCosts(candidate.distanceMiles, activeTravelMode);
   const car = estimateTripCosts(candidate.distanceMiles, 'car');
+  if (!active || !car) return null;
   return {
     candidate,
     active,

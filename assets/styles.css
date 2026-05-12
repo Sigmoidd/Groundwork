@@ -1257,6 +1257,7 @@ textarea { resize: vertical; }
 }
 .home-base-status span { color: var(--muted); font-size: 0.9rem; }
 .range-label { display: grid; gap: 8px; }
+.home-base-panel.is-car-mode .range-label { display: none; }
 .range-label input[type="range"] { min-height: auto; padding: 0; }
 .range-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 0.9rem; }
 .travel-mode-rows { overflow-x: auto; }

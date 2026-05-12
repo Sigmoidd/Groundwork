@@ -3025,6 +3025,13 @@ function handleAdmissionAction(action, id) {
 
   if (action === 'notify') {
     item.notice = buildAdmissionNotice(item);
+    appendEvent('dm.sent', {
+      toAlias: item.alias,
+      fromAlias: state.identity.alias,
+      topic: 'Join request',
+      body: item.notice,
+    });
+    currentThread = item.alias;
     toastMessage(`${item.alias}: ${item.notice}`);
   }
 
@@ -3046,6 +3053,7 @@ function handleAdmissionAction(action, id) {
 
   persist();
   renderAdmissionDesk();
+  renderThreads();
 }
 
 function admitReadyRequests() {

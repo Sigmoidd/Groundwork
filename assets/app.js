@@ -58,6 +58,17 @@ const NEIGHBORHOOD_BOUNDS = {
   'Southside': { latDelta: 0.014, lngDelta: 0.018 },
 };
 
+const CELL_PALETTE = [
+  { stroke: '#75c47b', fill: '#75c47b', accent: '#f4d35e' },
+  { stroke: '#64a8dc', fill: '#64a8dc', accent: '#75c47b' },
+  { stroke: '#f28f3b', fill: '#f28f3b', accent: '#64a8dc' },
+  { stroke: '#d779c6', fill: '#d779c6', accent: '#f4d35e' },
+  { stroke: '#e37b7b', fill: '#e37b7b', accent: '#75c47b' },
+  { stroke: '#8bd3dd', fill: '#8bd3dd', accent: '#f28f3b' },
+  { stroke: '#d5b14a', fill: '#d5b14a', accent: '#64a8dc' },
+  { stroke: '#9ccf62', fill: '#9ccf62', accent: '#d779c6' },
+];
+
 const RESOURCE_ICONS = {
   water: '💧',
   restroom: '🚻',
@@ -122,6 +133,18 @@ const TRAVEL_OPTIONS = [
   { id: 'scooter', title: 'Scooter / e-bike', copy: 'Default mode. Plan around your comfort radius.' },
   { id: 'car', title: 'Car', copy: 'Wider radius and destination density.' },
 ];
+
+const ADMISSION_STATUS = {
+  ready: { label: 'Ready', tone: 'ready', action: 'Can admit now' },
+  consent: { label: 'Needs consent', tone: 'wait', action: 'Ask user to approve' },
+  refresh: { label: 'Refresh needed', tone: 'wait', action: 'Ask user to refresh' },
+  wrongSpace: { label: 'Wrong space', tone: 'stop', action: 'Reject or ask for new invite' },
+  used: { label: 'Already used', tone: 'stop', action: 'Ask user to refresh' },
+  check: { label: 'Secure check', tone: 'wait', action: 'Pause and verify user is okay' },
+  invalid: { label: 'Invalid', tone: 'stop', action: 'Reject' },
+  admitted: { label: 'Admitted', tone: 'ready', action: 'Done' },
+  rejected: { label: 'Rejected', tone: 'stop', action: 'Done' },
+};
 
 const state = loadState();
 
@@ -214,6 +237,10 @@ const loadBeHeardEventsButton = document.getElementById('loadBeHeardEventsButton
 const createGroupForm = document.getElementById('createGroupForm');
 const joinGroupForm = document.getElementById('joinGroupForm');
 const groupList = document.getElementById('groupList');
+const admissionSummary = document.getElementById('admissionSummary');
+const admissionBoard = document.getElementById('admissionBoard');
+const seedAdmissionButton = document.getElementById('seedAdmissionButton');
+const admitReadyButton = document.getElementById('admitReadyButton');
 
 wireRouting();
 wireForms();
@@ -241,10 +268,34 @@ function normalizeState(parsed) {
     identity: parsed.identity || createIdentity(),
     contacts: Array.isArray(parsed.contacts) ? parsed.contacts : [],
     groups: Array.isArray(parsed.groups) ? parsed.groups : [],
+    admissions: normalizeAdmissions(parsed.admissions),
     relays: normalizeRelays(parsed.relays),
     events: Array.isArray(parsed.events) ? parsed.events : [],
     preferences: normalizePreferences(parsed.preferences),
   };
+}
+
+function normalizeAdmissions(admissions) {
+  const source = Array.isArray(admissions) ? admissions : [];
+  return source
+    .filter(item => item && typeof item === 'object')
+    .map(item => ({
+      id: String(item.id || crypto.randomUUID()),
+      alias: String(item.alias || 'Unknown user').slice(0, 40),
+      request: String(item.request || 'crew join').slice(0, 48),
+      relay: String(item.relay || 'Crew space').slice(0, 48),
+      event: String(item.event || 'Current task').slice(0, 48),
+      tokenAction: item.tokenAction !== false,
+      tokenRelay: item.tokenRelay !== false,
+      tokenEvent: item.tokenEvent !== false,
+      fresh: item.fresh !== false,
+      unused: item.unused !== false,
+      consent: item.consent === true,
+      calm: item.calm !== false,
+      status: String(item.status || 'pending'),
+      notice: String(item.notice || '').slice(0, 160),
+      createdAt: item.createdAt || new Date().toISOString(),
+    }));
 }
 
 
@@ -340,6 +391,8 @@ function wireForms() {
   relayForm?.addEventListener('submit', handleRelaySubmit);
   createGroupForm?.addEventListener('submit', handleCreateGroup);
   joinGroupForm?.addEventListener('submit', handleJoinGroup);
+  seedAdmissionButton?.addEventListener('click', seedAdmissionDesk);
+  admitReadyButton?.addEventListener('click', admitReadyRequests);
   importInput?.addEventListener('change', handleImport);
 
   resourceFilter?.addEventListener('change', () => {
@@ -542,6 +595,12 @@ function wireForms() {
     renderResources();
     renderMap();
     renderEvents();
+  });
+
+  admissionBoard?.addEventListener('click', event => {
+    const button = event.target.closest('[data-admission-action]');
+    if (!button) return;
+    handleAdmissionAction(button.dataset.admissionAction, button.dataset.admissionId);
   });
 
   travelCostStrip?.addEventListener('click', event => {
@@ -1229,6 +1288,7 @@ function render() {
   renderThreads();
   renderRelays();
   renderGroups();
+  renderAdmissionDesk();
   renderEventShape();
 }
 
@@ -1970,37 +2030,116 @@ function renderNeighborhoodPolygons() {
   const activeSector = sectorFilter?.value || 'all';
   const hasFocus = activeSector !== 'all';
   const sectors = Object.keys(SECTOR_COORDS);
+  const resources = deriveResources();
+  const events = deriveEvents({ includeExpired: false });
 
-  sectors.forEach(sector => {
-    const polygonPoints = buildNeighborhoodPolygon(sector);
+  sectors.forEach((sector, index) => {
+    const polygonPoints = buildNeighborhoodPolygon(sector, index);
     if (!polygonPoints.length) return;
 
     const isActive = sector === activeSector || !hasFocus;
+    const palette = CELL_PALETTE[index % CELL_PALETTE.length];
+    const resourceCount = resources.filter(item => item.sector === sector).length;
+    const eventCount = events.filter(item => item.sector === sector).length;
+    const serviceScore = resourceCount * 2 + eventCount * 3;
     const polygon = L.polygon(polygonPoints, {
-      weight: isActive && hasFocus ? 3 : 2,
-      opacity: isActive ? 0.75 : 0.22,
-      fillOpacity: isActive ? (hasFocus ? 0.16 : 0.06) : 0.03,
+      color: palette.stroke,
+      fillColor: palette.fill,
+      weight: isActive && hasFocus ? 4 : 2,
+      opacity: isActive ? 0.86 : 0.26,
+      fillOpacity: isActive ? (hasFocus ? 0.24 : 0.11) : 0.035,
+      dashArray: isActive ? null : '4 9',
+      className: `stewardship-cell stewardship-cell-${index % CELL_PALETTE.length}`,
     });
 
-    polygon.bindTooltip(sector);
+    polygon.bindTooltip(
+      `<strong>${escapeHtml(sector === 'Downtown' ? 'Bricktown' : sector)}</strong><br>` +
+      `${resourceCount} pins · ${eventCount} events · ${serviceScore || 1} care score`,
+      {
+        className: 'stewardship-cell-tooltip',
+        direction: 'top',
+        sticky: true,
+      }
+    );
+    polygon.bindPopup(
+      `<strong>${escapeHtml(sector === 'Downtown' ? 'Bricktown' : sector)} stewardship cell</strong><br>` +
+      `${resourceCount} public pins<br>` +
+      `${eventCount} active or upcoming events<br>` +
+      `<small>Click a cell to focus the Explore view.</small>`
+    );
+    polygon.on('mouseover', () => {
+      polygon.setStyle({
+        weight: 5,
+        opacity: 1,
+        fillOpacity: hasFocus && sector !== activeSector ? 0.1 : 0.26,
+      });
+      polygon.bringToFront();
+    });
+    polygon.on('mouseout', () => {
+      polygon.setStyle({
+        weight: isActive && hasFocus ? 4 : 2,
+        opacity: isActive ? 0.86 : 0.26,
+        fillOpacity: isActive ? (hasFocus ? 0.24 : 0.11) : 0.035,
+      });
+    });
+    polygon.on('click', () => {
+      if (sectorFilter) sectorFilter.value = sector;
+      render();
+      toastMessage(`${sector === 'Downtown' ? 'Bricktown' : sector} cell focused.`);
+    });
     polygon.addTo(neighborhoodPolygonsLayer);
+
+    const [lat, lng] = SECTOR_COORDS[sector];
+    const hub = L.marker([lat, lng], {
+      icon: L.divIcon({
+        className: 'cell-hub-marker',
+        html: `<span style="--cell-color:${palette.stroke};--cell-accent:${palette.accent}">${escapeHtml(String(resourceCount + eventCount || 1))}</span>`,
+      }),
+      interactive: false,
+    });
+    hub.addTo(neighborhoodPolygonsLayer);
   });
 }
 
-function buildNeighborhoodPolygon(sector) {
+function buildNeighborhoodPolygon(sector, paletteIndex = 0) {
   const center = SECTOR_COORDS[sector];
   const bounds = NEIGHBORHOOD_BOUNDS[sector];
   if (!center || !bounds) return [];
 
   const [lat, lng] = center;
   const { latDelta, lngDelta } = bounds;
+  const sectors = Object.keys(SECTOR_COORDS).filter(name => name !== sector);
+  const steps = 28;
+  const points = [];
+  const maxRadius = Math.max(latDelta, lngDelta);
 
-  return [
-    [lat + latDelta, lng - lngDelta],
-    [lat + latDelta, lng + lngDelta],
-    [lat - latDelta, lng + lngDelta],
-    [lat - latDelta, lng - lngDelta],
-  ];
+  for (let step = 0; step < steps; step += 1) {
+    const angle = (Math.PI * 2 * step) / steps;
+    const unitLat = Math.sin(angle);
+    const unitLng = Math.cos(angle);
+    let radius = maxRadius;
+
+    sectors.forEach(otherSector => {
+      const [otherLat, otherLng] = SECTOR_COORDS[otherSector];
+      const dLat = otherLat - lat;
+      const dLng = otherLng - lng;
+      const projection = dLat * unitLat + dLng * unitLng;
+      if (projection <= 0) return;
+      const neighborMidpoint = Math.max(0.004, projection * 0.52);
+      radius = Math.min(radius, neighborMidpoint);
+    });
+
+    const wobbleA = Math.sin((step + 1) * 1.7 + paletteIndex * 0.9) * 0.12;
+    const wobbleB = Math.cos((step + 3) * 0.8 + sector.length) * 0.08;
+    const radiusLat = Math.min(latDelta * 1.25, radius * (1 + wobbleA));
+    const radiusLng = Math.min(lngDelta * 1.25, radius * (1 + wobbleB));
+    points.push([
+      lat + unitLat * Math.max(0.0035, radiusLat),
+      lng + unitLng * Math.max(0.0035, radiusLng),
+    ]);
+  }
+
+  return points;
 }
 
 function resolveCoords(item) {
@@ -2222,6 +2361,124 @@ function renderGroups() {
         </div>
       </article>
     `).join('');
+}
+
+function readAdmissionStatus(item) {
+  if (item.status === 'admitted') return ADMISSION_STATUS.admitted;
+  if (item.status === 'rejected') return ADMISSION_STATUS.rejected;
+  if (!item.tokenAction || !item.tokenRelay) return ADMISSION_STATUS.invalid;
+  if (!item.tokenEvent) return ADMISSION_STATUS.wrongSpace;
+  if (!item.unused) return ADMISSION_STATUS.used;
+  if (!item.fresh) return ADMISSION_STATUS.refresh;
+  if (!item.calm) return ADMISSION_STATUS.check;
+  if (!item.consent) return ADMISSION_STATUS.consent;
+  return ADMISSION_STATUS.ready;
+}
+
+function renderAdmissionDesk() {
+  if (!admissionBoard || !admissionSummary) return;
+  const rows = state.admissions || [];
+  const pending = rows.filter(item => !['admitted', 'rejected'].includes(item.status));
+  const ready = pending.filter(item => readAdmissionStatus(item) === ADMISSION_STATUS.ready);
+  const action = pending.filter(item => readAdmissionStatus(item) !== ADMISSION_STATUS.ready);
+  const done = rows.filter(item => ['admitted', 'rejected'].includes(item.status));
+
+  admissionSummary.innerHTML = [
+    `<span class="stat"><strong>${ready.length}</strong> ready</span>`,
+    `<span class="stat"><strong>${action.length}</strong> need action</span>`,
+    `<span class="stat"><strong>${done.length}</strong> handled</span>`,
+  ].join('');
+
+  if (!rows.length) {
+    admissionBoard.innerHTML = `
+      <div class="empty">No join requests yet. Load the demo queue to see the flow.</div>
+    `;
+    return;
+  }
+
+  const sections = [
+    ['Ready', ready],
+    ['Needs Action', action],
+    ['Handled', done],
+  ].filter(([, items]) => items.length);
+
+  admissionBoard.innerHTML = sections.map(([title, items]) => `
+    <section class="admission-lane">
+      <div class="admission-lane-head">
+        <h3>${escapeHtml(title)}</h3>
+        <span>${items.length}</span>
+      </div>
+      <div class="card-list">
+        ${items.map(renderAdmissionCard).join('')}
+      </div>
+    </section>
+  `).join('');
+}
+
+function renderAdmissionCard(item) {
+  const status = readAdmissionStatus(item);
+  const checks = [
+    ['Action', item.tokenAction],
+    ['Relay', item.tokenRelay],
+    ['Event/task', item.tokenEvent],
+    ['Fresh', item.fresh],
+    ['Unused', item.unused],
+    ['Consent', item.consent],
+    ['Secure', item.calm],
+  ];
+  const notice = item.notice ? `<p class="card-subtitle">${escapeHtml(item.notice)}</p>` : '';
+  const actions = renderAdmissionActions(item, status);
+
+  return `
+    <article class="card admission-card">
+      <div class="card-head">
+        <div>
+          <h3 class="card-title">${escapeHtml(item.alias)}</h3>
+          <p class="card-subtitle">${escapeHtml(item.request)} · ${escapeHtml(item.event)}</p>
+        </div>
+        <span class="admission-chip ${escapeAttribute(status.tone)}">${escapeHtml(status.label)}</span>
+      </div>
+      <div class="admission-checks">
+        ${checks.map(([label, ok]) => `
+          <span class="${ok ? 'is-ok' : 'is-missing'}">${ok ? 'Yes' : 'No'} · ${escapeHtml(label)}</span>
+        `).join('')}
+      </div>
+      <div class="admission-next">
+        <strong>${escapeHtml(status.action)}</strong>
+        ${notice}
+      </div>
+      ${actions}
+    </article>
+  `;
+}
+
+function renderAdmissionActions(item, status) {
+  if (item.status === 'admitted' || item.status === 'rejected') {
+    return `
+      <div class="inline-actions wrap">
+        <button class="button small" type="button" data-admission-action="reset" data-admission-id="${escapeAttribute(item.id)}">Move back</button>
+      </div>
+    `;
+  }
+
+  const notifyLabel = status === ADMISSION_STATUS.consent
+    ? 'Notify: consent needed'
+    : status === ADMISSION_STATUS.refresh || status === ADMISSION_STATUS.used
+      ? 'Notify: refresh token'
+      : status === ADMISSION_STATUS.check
+        ? 'Notify: check in'
+        : 'Notify user';
+
+  return `
+    <div class="inline-actions wrap">
+      ${status === ADMISSION_STATUS.ready ? `<button class="button primary small" type="button" data-admission-action="admit" data-admission-id="${escapeAttribute(item.id)}">Admit</button>` : ''}
+      ${status !== ADMISSION_STATUS.ready ? `<button class="button small" type="button" data-admission-action="notify" data-admission-id="${escapeAttribute(item.id)}">${escapeHtml(notifyLabel)}</button>` : ''}
+      ${status === ADMISSION_STATUS.consent ? `<button class="button small" type="button" data-admission-action="consent" data-admission-id="${escapeAttribute(item.id)}">Consent received</button>` : ''}
+      ${status === ADMISSION_STATUS.refresh || status === ADMISSION_STATUS.used ? `<button class="button small" type="button" data-admission-action="refresh" data-admission-id="${escapeAttribute(item.id)}">Fresh token received</button>` : ''}
+      ${status === ADMISSION_STATUS.check ? `<button class="button small" type="button" data-admission-action="calm" data-admission-id="${escapeAttribute(item.id)}">User is okay</button>` : ''}
+      <button class="button danger small" type="button" data-admission-action="reject" data-admission-id="${escapeAttribute(item.id)}">Reject</button>
+    </div>
+  `;
 }
 
 function renderEventShape() {
@@ -2651,6 +2908,179 @@ function handleJoinGroup(event) {
   populateScopeDropdowns();
   renderGroups();
   toastMessage('Group joined.');
+}
+
+function seedAdmissionDesk() {
+  const now = new Date().toISOString();
+  state.admissions = [
+    {
+      id: crypto.randomUUID(),
+      alias: 'OakWren',
+      request: 'Crew join',
+      relay: 'Cleanup crew',
+      event: 'Capitol Hill run',
+      tokenAction: true,
+      tokenRelay: true,
+      tokenEvent: true,
+      fresh: true,
+      unused: true,
+      consent: true,
+      calm: true,
+      status: 'pending',
+      createdAt: now,
+    },
+    {
+      id: crypto.randomUUID(),
+      alias: 'CedarLark',
+      request: 'Crew join',
+      relay: 'Cleanup crew',
+      event: 'Capitol Hill run',
+      tokenAction: true,
+      tokenRelay: true,
+      tokenEvent: true,
+      fresh: true,
+      unused: true,
+      consent: false,
+      calm: true,
+      status: 'pending',
+      createdAt: now,
+    },
+    {
+      id: crypto.randomUUID(),
+      alias: 'ElmHawk',
+      request: 'Crew join',
+      relay: 'Cleanup crew',
+      event: 'Capitol Hill run',
+      tokenAction: true,
+      tokenRelay: true,
+      tokenEvent: true,
+      fresh: false,
+      unused: true,
+      consent: true,
+      calm: true,
+      status: 'pending',
+      createdAt: now,
+    },
+    {
+      id: crypto.randomUUID(),
+      alias: 'MapleFox',
+      request: 'Crew join',
+      relay: 'Cleanup crew',
+      event: 'Wrong route',
+      tokenAction: true,
+      tokenRelay: true,
+      tokenEvent: false,
+      fresh: true,
+      unused: true,
+      consent: true,
+      calm: true,
+      status: 'pending',
+      createdAt: now,
+    },
+    {
+      id: crypto.randomUUID(),
+      alias: 'WillowBee',
+      request: 'Crew chat',
+      relay: 'Cleanup crew',
+      event: 'Capitol Hill run',
+      tokenAction: true,
+      tokenRelay: true,
+      tokenEvent: true,
+      fresh: true,
+      unused: true,
+      consent: true,
+      calm: false,
+      status: 'pending',
+      createdAt: now,
+    },
+  ];
+  persist();
+  renderAdmissionDesk();
+  toastMessage('Demo queue loaded.');
+}
+
+function handleAdmissionAction(action, id) {
+  const item = state.admissions.find(row => row.id === id);
+  if (!item) return;
+
+  if (action === 'admit') {
+    const status = readAdmissionStatus(item);
+    if (status !== ADMISSION_STATUS.ready) {
+      toastMessage(`${item.alias} is not ready yet.`);
+      return;
+    }
+    item.status = 'admitted';
+    item.notice = 'Admitted by organizer.';
+  }
+
+  if (action === 'reject') {
+    item.status = 'rejected';
+    item.notice = 'Rejected by organizer.';
+  }
+
+  if (action === 'reset') {
+    item.status = 'pending';
+    item.notice = '';
+  }
+
+  if (action === 'notify') {
+    item.notice = buildAdmissionNotice(item);
+    toastMessage(`${item.alias}: ${item.notice}`);
+  }
+
+  if (action === 'consent') {
+    item.consent = true;
+    item.notice = 'Consent received.';
+  }
+
+  if (action === 'refresh') {
+    item.fresh = true;
+    item.unused = true;
+    item.notice = 'Fresh token received.';
+  }
+
+  if (action === 'calm') {
+    item.calm = true;
+    item.notice = 'User checked in and is okay.';
+  }
+
+  persist();
+  renderAdmissionDesk();
+}
+
+function admitReadyRequests() {
+  const ready = state.admissions.filter(item => readAdmissionStatus(item) === ADMISSION_STATUS.ready);
+  if (!ready.length) {
+    toastMessage('No ready requests to admit.');
+    return;
+  }
+  ready.forEach(item => {
+    item.status = 'admitted';
+    item.notice = 'Admitted in batch.';
+  });
+  persist();
+  renderAdmissionDesk();
+  toastMessage(`${ready.length} ready request${ready.length === 1 ? '' : 's'} admitted.`);
+}
+
+function buildAdmissionNotice(item) {
+  const status = readAdmissionStatus(item);
+  if (status === ADMISSION_STATUS.consent) {
+    return 'Please approve this join request on your device.';
+  }
+  if (status === ADMISSION_STATUS.refresh || status === ADMISSION_STATUS.used) {
+    return 'Please refresh your pass and try again.';
+  }
+  if (status === ADMISSION_STATUS.wrongSpace) {
+    return 'This pass is for another event. Please use the current invite.';
+  }
+  if (status === ADMISSION_STATUS.check) {
+    return 'Please check in with an organizer before joining.';
+  }
+  if (status === ADMISSION_STATUS.invalid) {
+    return 'This pass did not match the space. Please request a new invite.';
+  }
+  return 'You are ready to join.';
 }
 
 function handleJobSubmit(event) {

@@ -47,6 +47,7 @@ CORS_ORIGIN=https://groundworkokc.org
 RELAY_NAME=Groundwork Relay OKC
 MAX_BODY_BYTES=262144
 MAX_EVENT_BODY_BYTES=131072
+CANOPY_SECRET=change-this-to-at-least-32-random-bytes-before-deploy
 ```
 
 ## Event shape
@@ -152,6 +153,184 @@ curl -N "http://localhost:8787/v1/stream?kind=resource_pin&tile=okc:z15:35.472:-
 ### `GET /v1/export.ndjson`
 
 Exports matching events as newline-delimited JSON.
+
+## Canopy capability endpoints
+
+The v0.2 relay prototype adds a small capability layer. The public endpoint
+naming is intentionally neutral:
+
+- a `leaf` is a scoped, signed, short-lived capability token
+- `hold` verifies and spends a leaf
+- a `lantern` is a scoped attendance credential
+- a `stone` is a spent nullifier used for replay protection
+- a `seed` is the public issuer key and suite metadata
+- `shade` returns a blind response for a client-blinded request
+
+The preferred v0.2 flow follows the RFC 9474 RSA blind signature shape:
+`Prepare`, `Blind`, `BlindSign`, and `Finalize`, using the
+`RSABSSA-SHA384-PSS-Randomized` suite. The relay performs only the server-side
+operation: it validates the visible request envelope and returns a blind
+response over the client-supplied blinded message. The client is responsible for
+preparing, blinding, finalizing, and verifying the final signature.
+
+The older `leaf` endpoint remains as a local HMAC-sealed prototype for clients
+that have not implemented the blind flow yet.
+
+### `GET /v1/canopy/seed`
+
+Fetch the public issuer key and suite metadata.
+
+```bash
+curl http://localhost:8787/v1/canopy/seed
+```
+
+Returns:
+
+```json
+{
+  "ok": true,
+  "seed": {
+    "schema": "grtap.blind.seed.v1",
+    "keyId": "issuer-key-id",
+    "suite": "RSABSSA-SHA384-PSS-Randomized",
+    "modulusBytes": 384,
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----...",
+    "publicJwk": {
+      "kty": "RSA",
+      "n": "...",
+      "e": "AQAB"
+    }
+  }
+}
+```
+
+### `POST /v1/canopy/shade`
+
+Submit a blinded message and receive a blind response.
+
+```json
+{
+  "schema": "grtap.blind.issue.v1",
+  "keyId": "issuer-key-id",
+  "suite": "RSABSSA-SHA384-PSS-Randomized",
+  "blindedMsg": "base64url-modulus-sized-client-blinded-message",
+  "request": {
+    "capability": "crew_join",
+    "thresholdClass": "contributor",
+    "relayScopeHash": "sha256-relay-scope",
+    "actionScopeHash": "optional-sha256-action-scope",
+    "requestNonce": "client-random",
+    "expiresAt": 1778160000000
+  }
+}
+```
+
+Returns:
+
+```json
+{
+  "ok": true,
+  "shade": {
+    "schema": "grtap.blind.response.v1",
+    "keyId": "issuer-key-id",
+    "suite": "RSABSSA-SHA384-PSS-Randomized",
+    "blindSig": "base64url-modulus-sized-blind-response",
+    "issuedAt": 1778159900000,
+    "requestEcho": {
+      "capability": "crew_join",
+      "thresholdClass": "contributor",
+      "relayScopeHash": "sha256-relay-scope",
+      "actionScopeHash": "optional-sha256-action-scope",
+      "requestNonce": "client-random",
+      "expiresAt": 1778160000000
+    }
+  }
+}
+```
+
+Safety note:
+
+The main relay signs without seeing the final token. That protects privacy.
+
+Because of that, the private relay must check the token when it is used:
+
+- Is it for this action?
+- Is it for this relay?
+- Is it for this event or task?
+- Is it still fresh?
+- Has it already been used?
+
+If any answer is no, reject it.
+
+### `POST /v1/canopy/leaf`
+
+Mint a scoped capability leaf using the legacy HMAC prototype.
+
+```bash
+curl -X POST http://localhost:8787/v1/canopy/leaf \
+  -H 'content-type: application/json' \
+  -d '{
+    "capability": "crew_join",
+    "thresholdClass": "contributor",
+    "relayScope": "demo-private-relay",
+    "actionScope": "cleanup-run-42"
+  }'
+```
+
+Returns:
+
+```json
+{
+  "ok": true,
+  "leaf": {
+    "kind": "canopy.leaf",
+    "capability": "crew_join",
+    "thresholdClass": "contributor",
+    "relayScope": "hash",
+    "actionScope": "hash",
+    "expiresAt": 1778160000000,
+    "nullifier": "one-use-value",
+    "seal": "server-seal"
+  }
+}
+```
+
+### `POST /v1/canopy/hold`
+
+Verify and spend a leaf. The same leaf cannot be held twice.
+
+```bash
+curl -X POST http://localhost:8787/v1/canopy/hold \
+  -H 'content-type: application/json' \
+  -d '{
+    "leaf": { "...": "leaf from /v1/canopy/leaf" },
+    "ask": {
+      "capability": "crew_join",
+      "thresholdClass": "contributor",
+      "relayScope": "demo-private-relay",
+      "actionScope": "cleanup-run-42"
+    }
+  }'
+```
+
+### `POST /v1/lantern/glow`
+
+Mint a scoped attendance credential.
+
+```bash
+curl -X POST http://localhost:8787/v1/lantern/glow \
+  -H 'content-type: application/json' \
+  -d '{
+    "attendanceClass": "credit",
+    "eventTimeBucket": "2026-05-11T21",
+    "eventTypeClass": "public_stewardship"
+  }'
+```
+
+### `POST /v1/lantern/mark`
+
+Verify and spend an attendance credential. The relay stores only the spent
+nullifier and coarse credential metadata needed for replay protection.
 
 ## Feature freeze payload examples
 

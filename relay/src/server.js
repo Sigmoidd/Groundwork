@@ -4,10 +4,25 @@ const path = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
 const EventEmitter = require('events');
+const {
+  castShade,
+  fitsBranch,
+  fitsLantern,
+  makeLantern,
+  makeLeaf,
+  openCanopy,
+  readBundle,
+  readLantern,
+  readLeaf,
+  stoneKey
+} = require('./canopy');
 
 const PORT = Number(process.env.PORT || 8787);
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'events.ndjson');
+const CANOPY_FILE = path.join(DATA_DIR, 'canopy.ndjson');
+const LANTERN_FILE = path.join(DATA_DIR, 'lantern.ndjson');
+const STONES_FILE = path.join(DATA_DIR, 'stones.ndjson');
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 262144);
 const MAX_EVENT_BODY_BYTES = Number(process.env.MAX_EVENT_BODY_BYTES || 131072);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
@@ -38,10 +53,17 @@ const bus = new EventEmitter();
 const events = [];
 const byId = new Map();
 const writeCounts = new Map();
+const stones = new Set();
+let garden = null;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(DATA_FILE)) {
   fs.writeFileSync(DATA_FILE, '');
+}
+for (const file of [CANOPY_FILE, LANTERN_FILE, STONES_FILE]) {
+  if (!fs.existsSync(file)) {
+    fs.writeFileSync(file, '');
+  }
 }
 
 function stableStringify(value) {
@@ -222,6 +244,34 @@ function appendEvent(event) {
   return { stored: true, event: stored, duplicate: false };
 }
 
+function appendLine(file, value) {
+  fs.appendFileSync(file, JSON.stringify({ ...value, receivedAt: Date.now() }) + '\n');
+}
+
+function loadStones() {
+  const lines = fs.readFileSync(STONES_FILE, 'utf8').split('\n').filter(Boolean);
+  for (const line of lines) {
+    try {
+      const item = JSON.parse(line);
+      if (item && item.key) {
+        stones.add(item.key);
+      }
+    } catch (err) {
+      console.error('Skipping bad line in stones.ndjson:', err.message);
+    }
+  }
+}
+
+function layStone(kind, nullifier, meta = {}) {
+  const key = stoneKey(kind, nullifier);
+  if (stones.has(key)) {
+    return { ok: false, error: 'already used' };
+  }
+  stones.add(key);
+  appendLine(STONES_FILE, { key, kind, meta });
+  return { ok: true, key };
+}
+
 function eventVisibleForQuery(event, query) {
   if (query.kind && event.kind !== query.kind) return false;
   if (query.tile && event.tile !== query.tile) return false;
@@ -328,6 +378,8 @@ function readJsonBody(req, res, callback) {
 }
 
 loadEvents();
+loadStones();
+garden = openCanopy(DATA_DIR);
 
 const server = http.createServer((req, res) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -342,7 +394,13 @@ const server = http.createServer((req, res) => {
       relay: RELAY_NAME,
       storedEvents: events.length,
       activeStreams: subscribers.size,
-      supportedKinds: Array.from(ALLOWED_KINDS)
+      supportedKinds: Array.from(ALLOWED_KINDS),
+      canopy: {
+        active: true,
+        stones: stones.size,
+        keyId: garden.keyId,
+        suite: garden.suite
+      }
     });
   }
 
@@ -387,6 +445,175 @@ const server = http.createServer((req, res) => {
     return res.end(lines);
   }
 
+  if (req.method === 'GET' && urlObj.pathname === '/v1/canopy/seed') {
+    return json(res, 200, {
+      ok: true,
+      seed: {
+        schema: 'grtap.blind.seed.v1',
+        keyId: garden.keyId,
+        suite: garden.suite,
+        modulusBytes: garden.modulusBytes,
+        publicKeyPem: garden.publicKeyPem,
+        publicJwk: garden.publicJwk,
+        prepare: {
+          name: 'PrepareIdentity',
+          messageEncoding: 'utf8-json',
+          requiredTokenFields: [
+            'schema',
+            'kind',
+            'capability',
+            'thresholdClass',
+            'relayScopeHash',
+            'issuedAt',
+            'expiresAt',
+            'tokenNonce',
+            'nullifier'
+          ]
+        }
+      }
+    });
+  }
+
+  if (req.method === 'POST' && urlObj.pathname === '/v1/canopy/shade') {
+    if (!rateLimit(req, 30)) {
+      return json(res, 429, { ok: false, error: 'rate limited' });
+    }
+    return readJsonBody(req, res, (payload) => {
+      const checked = readBundle(payload, garden);
+      if (!checked.ok) {
+        return badRequest(res, checked.error);
+      }
+      let shade = '';
+      try {
+        shade = castShade(garden, checked.bundle.blinded);
+      } catch (err) {
+        return badRequest(res, err.message);
+      }
+      appendLine(CANOPY_FILE, {
+        event: 'shade.cast',
+        schema: checked.bundle.schema,
+        keyId: checked.bundle.keyId,
+        suite: checked.bundle.suite,
+        capability: checked.bundle.request.capability,
+        thresholdClass: checked.bundle.request.thresholdClass,
+        relayScopeHash: checked.bundle.request.relayScopeHash,
+        actionScopeHash: checked.bundle.request.actionScopeHash,
+        expiresAt: checked.bundle.request.expiresAt
+      });
+      return json(res, 201, {
+        ok: true,
+        shade: {
+          schema: 'grtap.blind.response.v1',
+          keyId: checked.bundle.keyId,
+          suite: checked.bundle.suite,
+          blindSig: shade,
+          issuedAt: Date.now(),
+          requestEcho: checked.bundle.request
+        }
+      });
+    });
+  }
+
+  if (req.method === 'POST' && urlObj.pathname === '/v1/canopy/leaf') {
+    if (!rateLimit(req, 30)) {
+      return json(res, 429, { ok: false, error: 'rate limited' });
+    }
+    return readJsonBody(req, res, (payload) => {
+      const leaf = makeLeaf(payload);
+      appendLine(CANOPY_FILE, {
+        event: 'leaf.minted',
+        capability: leaf.capability,
+        thresholdClass: leaf.thresholdClass,
+        relayScope: leaf.relayScope,
+        actionScope: leaf.actionScope,
+        expiresAt: leaf.expiresAt
+      });
+      return json(res, 201, { ok: true, leaf });
+    });
+  }
+
+  if (req.method === 'POST' && urlObj.pathname === '/v1/canopy/hold') {
+    if (!rateLimit(req, 60)) {
+      return json(res, 429, { ok: false, error: 'rate limited' });
+    }
+    return readJsonBody(req, res, (payload) => {
+      const checked = readLeaf(payload.leaf || payload);
+      if (!checked.ok) {
+        return badRequest(res, checked.error);
+      }
+      const branch = fitsBranch(checked.leaf, payload.ask || {});
+      if (!branch.ok) {
+        return badRequest(res, branch.error);
+      }
+      const stone = layStone('leaf', checked.leaf.nullifier, {
+        capability: checked.leaf.capability,
+        thresholdClass: checked.leaf.thresholdClass,
+        relayScope: checked.leaf.relayScope,
+        actionScope: checked.leaf.actionScope
+      });
+      if (!stone.ok) {
+        return json(res, 409, { ok: false, error: stone.error });
+      }
+      return json(res, 200, {
+        ok: true,
+        held: {
+          capability: checked.leaf.capability,
+          thresholdClass: checked.leaf.thresholdClass,
+          relayScope: checked.leaf.relayScope,
+          actionScope: checked.leaf.actionScope,
+          expiresAt: checked.leaf.expiresAt
+        }
+      });
+    });
+  }
+
+  if (req.method === 'POST' && urlObj.pathname === '/v1/lantern/glow') {
+    if (!rateLimit(req, 30)) {
+      return json(res, 429, { ok: false, error: 'rate limited' });
+    }
+    return readJsonBody(req, res, (payload) => {
+      const lantern = makeLantern(payload);
+      appendLine(LANTERN_FILE, {
+        event: 'lantern.minted',
+        attendanceClass: lantern.attendanceClass,
+        eventCommitment: lantern.eventCommitment,
+        expiresAt: lantern.expiresAt
+      });
+      return json(res, 201, { ok: true, lantern });
+    });
+  }
+
+  if (req.method === 'POST' && urlObj.pathname === '/v1/lantern/mark') {
+    if (!rateLimit(req, 60)) {
+      return json(res, 429, { ok: false, error: 'rate limited' });
+    }
+    return readJsonBody(req, res, (payload) => {
+      const checked = readLantern(payload.lantern || payload);
+      if (!checked.ok) {
+        return badRequest(res, checked.error);
+      }
+      const lantern = fitsLantern(checked.lantern, payload.ask || {});
+      if (!lantern.ok) {
+        return badRequest(res, lantern.error);
+      }
+      const stone = layStone('lantern', checked.lantern.nullifier, {
+        attendanceClass: checked.lantern.attendanceClass,
+        eventCommitment: checked.lantern.eventCommitment
+      });
+      if (!stone.ok) {
+        return json(res, 409, { ok: false, error: stone.error });
+      }
+      return json(res, 200, {
+        ok: true,
+        marked: {
+          attendanceClass: checked.lantern.attendanceClass,
+          eventCommitment: checked.lantern.eventCommitment,
+          expiresAt: checked.lantern.expiresAt
+        }
+      });
+    });
+  }
+
   if (req.method === 'POST' && urlObj.pathname === '/v1/events') {
     if (!rateLimit(req)) {
       return json(res, 429, { ok: false, error: 'rate limited' });
@@ -416,7 +643,7 @@ const server = http.createServer((req, res) => {
     return text(
       res,
       200,
-      `${RELAY_NAME}\n\nEndpoints:\nGET  /health\nGET  /v1/events\nPOST /v1/events\nGET  /v1/inbox/:recipient\nGET  /v1/stream\nGET  /v1/export.ndjson\n`
+      `${RELAY_NAME}\n\nEndpoints:\nGET  /health\nGET  /v1/events\nPOST /v1/events\nGET  /v1/inbox/:recipient\nGET  /v1/stream\nGET  /v1/export.ndjson\nGET  /v1/canopy/seed\nPOST /v1/canopy/shade\nPOST /v1/canopy/leaf\nPOST /v1/canopy/hold\nPOST /v1/lantern/glow\nPOST /v1/lantern/mark\n`
     );
   }
 

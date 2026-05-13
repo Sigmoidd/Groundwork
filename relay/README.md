@@ -30,6 +30,17 @@ npm install
 npm start
 ```
 
+Run the relay smoke suite before deploying changes:
+
+```bash
+npm test
+```
+
+The smoke suite starts the relay on a random local port with a temporary data
+directory, then verifies event sync, private inbox reads, GRTAP canopy
+leaf/hold replay protection, lantern attendance replay protection, and the
+blind seed/shade endpoints.
+
 Default port: `8787`
 
 Health check:

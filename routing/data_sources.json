@@ -1,0 +1,152 @@
+{
+  "version": "0.1",
+  "base_url": "https://data.okc.gov/services/portal/api",
+  "notes": [
+    "Fetch public source data during ingest; do not commit downloaded OKC data without license review.",
+    "The OKC portal records API returns tabular records. The map API returns full feature geometry in decimal degrees.",
+    "OpenStreetMap data is ODbL and requires attribution and share-alike handling for derived databases."
+  ],
+  "okc_open_data": [
+    {
+      "key": "hvi_2020",
+      "dataset": "Heat Vulnerability Study 2020",
+      "dataset_id": 198,
+      "type": "polygon",
+      "priority": "required",
+      "use": "Heat vulnerability scoring; spatial join to routing edges.",
+      "viewer": "https://data.okc.gov/portal/page/viewer?datasetName=Heat+Vulnerability+Study+2020",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Heat%20Vulnerability%20Study%202020",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Heat%20Vulnerability%20Study%202020"
+    },
+    {
+      "key": "parks",
+      "dataset": "Parks",
+      "dataset_id": 48,
+      "type": "polygon",
+      "priority": "required",
+      "use": "Green space, shade proxy, nature routing, nearby destinations.",
+      "viewer": "https://data.okc.gov/portal/page/tableembed?datasetName=Parks",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Parks",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Parks"
+    },
+    {
+      "key": "trails",
+      "dataset": "Trails",
+      "dataset_id": 49,
+      "type": "line",
+      "priority": "required",
+      "use": "Walkable and bikeable separated paths.",
+      "viewer": "https://data.okc.gov/portal/page/tableembed?datasetName=Trails",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Trails",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Trails"
+    },
+    {
+      "key": "park_amenities",
+      "dataset": "Park Amenities",
+      "dataset_id": 137,
+      "type": "point_or_polygon",
+      "priority": "required",
+      "use": "Water, shelters, recreation, rest stops, public facilities where present.",
+      "viewer": "https://data.okc.gov/portal/page/bingtableembed?bingMapKey=&datasetName=Park+Amenities",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Park%20Amenities",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Park%20Amenities"
+    },
+    {
+      "key": "facilities",
+      "dataset": "Facilities",
+      "dataset_id": 50,
+      "type": "point",
+      "priority": "required",
+      "use": "Park facilities, pools, spraygrounds, shelters, senior centers.",
+      "viewer": "https://data.okc.gov/portal/page/tableembed?datasetName=Facilities",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Facilities",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Facilities"
+    },
+    {
+      "key": "fire_stations",
+      "dataset": "Fire Stations",
+      "dataset_id": 28,
+      "type": "point",
+      "priority": "optional",
+      "use": "Public safety landmarks and potential water/cooling-adjacent civic anchors after verification.",
+      "viewer": "https://data.okc.gov/portal/page/tableembed?datasetName=Fire+Stations",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Fire%20Stations",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Fire%20Stations"
+    },
+    {
+      "key": "bike_routes",
+      "dataset": "Bike Routes",
+      "dataset_id": 199,
+      "type": "line",
+      "priority": "required",
+      "use": "Bike/e-bike default mode, bike facility classification, and low-stress routing.",
+      "viewer": "https://data.okc.gov/portal/page/tableembed?datasetName=Bike+Routes",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Bike%20Routes",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Bike%20Routes"
+    },
+    {
+      "key": "active_pedestrian_projects",
+      "dataset": "Active Pedestrian Projects",
+      "dataset_id": 203,
+      "type": "line_or_point",
+      "priority": "required",
+      "use": "Construction/project awareness; penalize closed or under-construction sidewalk segments.",
+      "viewer": "https://data.okc.gov/portal/page/tableembed?datasetName=Active+Pedestrian+Projects",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Active%20Pedestrian%20Projects",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Active%20Pedestrian%20Projects"
+    },
+    {
+      "key": "pavement_condition",
+      "dataset": "Pavement Condition",
+      "dataset_id": 115,
+      "type": "line",
+      "priority": "optional",
+      "use": "Road-adjacent comfort proxy where sidewalk surface is unknown.",
+      "viewer": "https://data.okc.gov/portal/page/viewer?datasetName=Pavement+Condition&view=table",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Pavement%20Condition",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Pavement%20Condition"
+    },
+    {
+      "key": "address_information",
+      "dataset": "Address Information",
+      "dataset_id": 30,
+      "type": "point",
+      "priority": "optional",
+      "use": "Geocoding support, street ownership, council ward, neighborhood association context.",
+      "viewer": "https://data.okc.gov/portal/page/tableembed?datasetName=Address+Information",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Address%20Information",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Address%20Information"
+    }
+  ],
+  "external_public_data": [
+    {
+      "key": "osm_okc",
+      "source": "OpenStreetMap",
+      "license": "ODbL",
+      "use": "Base pedestrian, bike/e-bike, street, path, crossing, cycleway, bike parking, bike repair, and amenity network.",
+      "download": "https://download.geofabrik.de/north-america/us/oklahoma.html"
+    },
+    {
+      "key": "gbfs_micromobility",
+      "source": "GBFS feeds where available",
+      "license": "provider-specific",
+      "use": "Bike-share stations, scooter corrals, availability, and dock status for non-default alternates and bike/e-bike planning.",
+      "note": "Treat provider location data as operational data. Cache minimally and do not build user movement profiles."
+    },
+    {
+      "key": "noaa_weather",
+      "source": "NOAA / National Weather Service",
+      "license": "public domain",
+      "use": "Temperature, heat alerts, rain, wind, forecast cache.",
+      "api": "https://api.weather.gov/"
+    }
+  ],
+  "community_data": [
+    {
+      "key": "topology_reports",
+      "source": "Groundwork users",
+      "use": "Missing sidewalks, closures, curb cuts, rough surface, shade, water status.",
+      "privacy": "pseudonymous, time-decayed, trust-weighted"
+    }
+  ]
+}

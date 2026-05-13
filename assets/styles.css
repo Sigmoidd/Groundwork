@@ -398,22 +398,39 @@ textarea { resize: vertical; }
 
 .intent-chip {
   display: grid;
-  gap: 6px;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
   text-align: left;
   border-radius: 22px;
   border: 1px solid rgba(255,255,255,0.10);
   background: linear-gradient(180deg, rgba(255,245,220,0.06), rgba(255,255,255,0.02));
   color: var(--text);
-  padding: 14px 16px;
+  padding: 8px;
   cursor: pointer;
   transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease, opacity 0.14s ease;
 }
 
-.intent-chip strong {
-  font-size: 1rem;
+.intent-chip-photo {
+  width: 76px;
+  height: 62px;
+  border-radius: 14px;
+  object-fit: cover;
+  border: 1px solid rgba(255,255,255,0.12);
 }
 
-.intent-chip span {
+.intent-chip-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.intent-chip strong {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.intent-chip-copy > span {
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.45;
@@ -1066,15 +1083,21 @@ textarea { resize: vertical; }
 
 .intent-chip {
   border-radius: 18px;
-  padding: 12px 14px;
-  gap: 4px;
+  padding: 8px;
+  gap: 9px;
+}
+
+.intent-chip-photo {
+  width: 70px;
+  height: 58px;
+  border-radius: 12px;
 }
 
 .intent-chip strong {
   font-size: 0.98rem;
 }
 
-.intent-chip span {
+.intent-chip-copy > span {
   font-size: 0.84rem;
 }
 

@@ -122,15 +122,41 @@ const NEIGHBORHOOD_MEDIA = {
 };
 
 const INTENT_OPTIONS = [
-  { id: 'all', title: 'Everything', copy: 'Show the full neighborhood mix.' },
-  { id: 'entertainment', title: 'Entertainment', copy: 'Fun hangs, outings, and scenic stops.' },
-  { id: 'interaction', title: 'Interaction', copy: 'Groups, events, and places people gather.' },
-  { id: 'purpose', title: 'Purpose', copy: 'Mutual aid, stewardship, and useful next moves.' },
+  {
+    id: 'all',
+    title: 'Everything',
+    copy: 'Show the full neighborhood mix.',
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,h_800,q_65,w_639/v1/clients/oklahoma/DJI_0038_Enhanced_NR_9828fabc-3956-4192-b353-a1bbf8313248.jpg'
+  },
+  {
+    id: 'nature',
+    title: 'Nature',
+    copy: 'Parks, shade, gardens, water, and outside time.',
+    image: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=420&q=70'
+  },
+  {
+    id: 'entertainment',
+    title: 'Entertainment',
+    copy: 'Fun hangs, outings, and scenic stops.',
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,g_xy_center,h_800,q_65,w_639,x_1638,y_1967/v1/clients/oklahoma/18_OKC_035_Gen_Paseo_15_31b587ed-3b29-470c-89ce-419daaa51ae4.jpg'
+  },
+  {
+    id: 'interaction',
+    title: 'Interaction',
+    copy: 'Groups, events, and places people gather.',
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,h_800,q_65,w_639/v1/clients/oklahoma/Juneteenth_2023_Credit_Tyler_Stark_6_32bad4f4-119e-4350-abbe-efd0b37eb880.jpg'
+  },
+  {
+    id: 'purpose',
+    title: 'Purpose',
+    copy: 'Mutual aid, stewardship, and useful next moves.',
+    image: 'https://assets.simpleviewinc.com/simpleview/image/upload/c_fill,f_jpg,g_xy_center,h_800,q_65,w_639,x_3232,y_1676/v1/clients/oklahoma/221001_Fiesta_de_las_Americas_2022_Josh_Vaughn_9218_f04cb92d-0168-457f-b62a-12c4b20f7177.jpg'
+  },
 ];
 
 const TRAVEL_OPTIONS = [
-  { id: 'foot', title: 'Foot', copy: 'Keep it close and easy.' },
-  { id: 'scooter', title: 'Scooter / e-bike', copy: 'Default mode. Plan around your comfort radius.' },
+  { id: 'scooter', title: 'Bike / e-bike', copy: 'Default mode. Plan around your comfort radius.' },
+  { id: 'foot', title: 'Stroll', copy: 'Strolling through the neighborhood.' },
   { id: 'car', title: 'Car', copy: 'Wider radius and destination density.' },
 ];
 
@@ -1337,6 +1363,7 @@ function getResourcePriorityScore(item) {
   if (item.photo || item.photos?.length) score += 1;
   if (activeIntent === 'entertainment' && ['garden','fishing','shade','tree'].includes(item.resource)) score += 3;
   if (activeIntent === 'interaction' && ['restroom','water','shade'].includes(item.resource)) score += 2;
+  if (activeIntent === 'nature' && ['shade','garden','tree','water','fishing'].includes(item.resource)) score += 4;
   if (activeIntent === 'purpose' && ['garden','trash_can','water','restroom','bike_rack'].includes(item.resource)) score += 3;
   if (activeTravelMode === 'foot' && ['water','restroom','shade'].includes(item.resource)) score += 2;
   if (activeTravelMode === 'scooter' && ['bike_rack','outlet','water','shade'].includes(item.resource)) score += 3;
@@ -1461,8 +1488,11 @@ function renderIntentRows() {
       class="intent-chip ${option.id === activeIntent ? 'is-active' : ''}"
       data-intent="${escapeAttribute(option.id)}"
     >
-      <strong>${escapeHtml(option.title)}</strong>
-      <span>${escapeHtml(option.copy)}</span>
+      <img class="intent-chip-photo" src="${escapeAttribute(option.image)}" alt="" loading="lazy">
+      <span class="intent-chip-copy">
+        <strong>${escapeHtml(option.title)}</strong>
+        <span>${escapeHtml(option.copy)}</span>
+      </span>
     </button>
   `).join('');
 }
@@ -1485,7 +1515,7 @@ function renderHomeBasePanel() {
     homeBaseCopy.textContent = isCar
       ? 'Car mode uses exact trip distance when there is a real nearby destination. Home base stays on this device.'
       : isScooter
-        ? 'Defaulting to scooter / e-bike. Use browser location now or save a home base that stays on this device.'
+        ? 'Defaulting to bike / e-bike. Use browser location now or save a home base that stays on this device.'
         : 'You can still keep a local home base for planning. It never goes to the relay.';
   }
 
@@ -1674,7 +1704,7 @@ function renderTravelCostStrip() {
     travelCostStrip.innerHTML = `
       <div class="travel-cost-head">
         <div>
-          <h4>Estimated trip cost</h4>
+          <h4>Price to travel</h4>
           <p>Use browser location or your local home base to compare travel costs and city burden.</p>
         </div>
       </div>
@@ -1682,11 +1712,11 @@ function renderTravelCostStrip() {
     `;
     return;
   }
-  const activeLabel = activeTravelMode === 'scooter' ? 'Scooter / e-bike' : activeTravelMode === 'car' ? 'Car' : 'Foot';
+  const activeLabel = activeTravelMode === 'scooter' ? 'Bike / e-bike' : activeTravelMode === 'car' ? 'Car' : 'Walk';
   travelCostStrip.innerHTML = `
     <div class="travel-cost-head">
       <div>
-        <h4>Estimated round-trip cost</h4>
+        <h4>Price to travel</h4>
         <p>${escapeHtml(activeLabel)} to ${escapeHtml(estimate.candidate.label)} · about ${formatMiles(estimate.active.distanceMiles)}</p>
       </div>
       <button class="button small" type="button" data-log-trip>Log this trip</button>
@@ -1698,7 +1728,7 @@ function renderTravelCostStrip() {
       <div class="travel-cost-metric"><strong>${formatMoney(estimate.savingsVsCar)}</strong><span>Save vs car</span></div>
     </div>
     <div class="travel-cost-actions">
-      <div class="travel-cost-footnote">Roadway burden includes resurfacing wear. Car impact is heavier than scooters, bikes, or walking.</div>
+      <div class="travel-cost-footnote">Roadway burden includes resurfacing wear. Car impact is heavier than bikes, e-bikes, or walking.</div>
       ${activeTravelMode !== 'car' ? '<button class="button small" type="button" data-switch-mode="car">Compare as car</button>' : ''}
     </div>
   `;
@@ -1750,7 +1780,7 @@ function renderLifetimeCostCard() {
     <div class="mode-breakdown">
       ${['foot','scooter','car'].map(mode => {
         const row = stats.byMode[mode] || normalizeModeStats();
-        const label = mode === 'scooter' ? 'Scooter / e-bike' : mode === 'car' ? 'Car' : 'Foot';
+        const label = mode === 'scooter' ? 'Bike / e-bike' : mode === 'car' ? 'Car' : 'Walk';
         return `<div class="mode-row"><div><strong>${escapeHtml(label)}</strong><div class="mode-row-label">${row.trips} trips · ${formatMiles(row.distanceMiles)}</div></div><div><strong>${formatMoney(row.totalImpact)}</strong><div class="mode-row-label">total impact</div></div></div>`;
       }).join('')}
     </div>
@@ -1851,10 +1881,11 @@ function renderTopPlans() {
 
 function getIntentLeadCopy(focusedSector, intent, fallbackVibe) {
   const place = focusedSector || 'Oklahoma City';
-  const travelMap = { foot: 'on foot', scooter: 'by scooter or e-bike', car: 'by car' };
+  const travelMap = { foot: 'on foot', scooter: 'by bike or e-bike', car: 'by car' };
   const travelText = travelMap[activeTravelMode] || 'nearby';
   const map = {
     all: `Be the change, do the Groundwork; make the city dignify humans again in ${place}, ${travelText}.`,
+    nature: `Nature-first picks in ${place}: shade, gardens, water, and outside time ${travelText}.`,
     entertainment: `Entertainment-first picks in ${place}: easy hangs, scenic stops, and a light day out ${travelText}.`,
     interaction: `Groups, events, and social energy in ${place}, tuned for moving ${travelText}.`,
     purpose: `Useful moves in ${place}: volunteering, stewardship, small jobs, and places that help people ${travelText}.`,
@@ -1893,6 +1924,17 @@ function buildTopPlanCards(focusedSector, intent) {
           ? 'Scenic stops'
           : 'Flexible loop',
       },
+      nature: {
+        title: 'Find shade and green',
+        chip: 'Nature',
+        copy: sectorResources.filter(item => ['shade', 'garden', 'tree', 'water', 'fishing'].includes(item.resource)).length
+          ? `Use ${sector} for a calmer outside route with shade, water, and green stops nearby.`
+          : `${media.vibe} Keep it slow and look for the easiest outside loop.`,
+        length: '30 min to 2 hrs',
+        stops: sectorResources.filter(item => ['shade', 'garden', 'tree', 'water', 'fishing'].includes(item.resource)).length
+          ? 'Green stops'
+          : 'Easy outside loop',
+      },
       interaction: {
         title: 'Go where people are',
         chip: 'Interaction',
@@ -1914,7 +1956,7 @@ function buildTopPlanCards(focusedSector, intent) {
     };
 
     const plan = plansByIntent[intent] || plansByIntent.all;
-    const travelMeta = { foot: 'Best close by', scooter: 'Good on a scooter', car: 'Worth the drive' };
+    const travelMeta = { foot: 'Best close by', scooter: 'Good by bike', car: 'Worth the drive' };
     return {
       sector,
       intent,

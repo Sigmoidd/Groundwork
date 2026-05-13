@@ -675,6 +675,52 @@ textarea { resize: vertical; }
   font-size: 0.92rem;
 }
 
+.quest-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(213, 177, 74, 0.22);
+  border-radius: 14px;
+  background: rgba(213, 177, 74, 0.06);
+  margin-bottom: 12px;
+}
+
+.quest-strip p {
+  margin: 4px 0 0;
+}
+
+.quest-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.quest-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 14px;
+  border: 1px solid rgba(213, 177, 74, 0.2);
+  border-radius: 14px;
+  background:
+    linear-gradient(90deg, rgba(20, 23, 23, 0.76), rgba(20, 23, 23, 0.48)),
+    repeating-linear-gradient(135deg, rgba(213, 177, 74, 0.08), rgba(213, 177, 74, 0.08) 8px, transparent 8px, transparent 16px);
+  opacity: 0.9;
+}
+
+.quest-card h3,
+.quest-card p {
+  margin: 0;
+}
+
+.quest-card p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .admission-desk { margin-top: 18px; }
 .admission-board {
   display: grid;

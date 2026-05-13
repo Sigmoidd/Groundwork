@@ -79,6 +79,7 @@ const RESOURCE_ICONS = {
   fishing: '🎣',
   bike_rack: '🚲',
   trash_can: '🗑️',
+  business: '$',
 };
 
 
@@ -177,6 +178,7 @@ const state = loadState();
 let map = null;
 let markersLayer = null;
 let eventMarkersLayer = null;
+let osmBusinessLayer = null;
 let neighborhoodPolygonsLayer = null;
 let pendingLocation = null;
 let pendingMarker = null;
@@ -186,6 +188,9 @@ let activeTravelMode = 'scooter';
 let currentBrowseLocation = null;
 let mapPreviewOpen = false;
 let editingResourceId = null;
+let osmBusinessQuests = [];
+let osmBusinessLoading = false;
+let osmBusinessCacheKey = '';
 
 const routes = ['map', 'jobs', 'events', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
 const tabEls = Array.from(document.querySelectorAll('.tab'));
@@ -249,6 +254,9 @@ const sectorFilter = document.getElementById('sectorFilter');
 const scopeFilter = document.getElementById('scopeFilter');
 const resourceScopeSelect = document.getElementById('resourceScopeSelect');
 const seedDemoButton = document.getElementById('seedDemoButton');
+const loadOsmBusinessesButton = document.getElementById('loadOsmBusinessesButton');
+const osmQuestList = document.getElementById('osmQuestList');
+const osmQuestStatus = document.getElementById('osmQuestStatus');
 const focusUserButton = document.getElementById('focusUserButton');
 const pickMapLocationButton = document.getElementById('pickMapLocationButton');
 const useLocationButton = document.getElementById('useLocationButton');
@@ -423,10 +431,14 @@ function wireForms() {
 
   resourceFilter?.addEventListener('change', () => {
     renderResources();
+    renderOsmBusinessQuests();
     renderMap();
   });
 
   sectorFilter?.addEventListener('change', () => {
+    osmBusinessQuests = [];
+    osmBusinessCacheKey = '';
+    renderOsmBusinessQuests();
     renderResources();
     renderMap();
   });
@@ -502,6 +514,7 @@ function wireForms() {
 
   exportButton?.addEventListener('click', handleExport);
   seedDemoButton?.addEventListener('click', seedDemoData);
+  loadOsmBusinessesButton?.addEventListener('click', loadOsmBusinessQuests);
   loadBeHeardEventsButton?.addEventListener('click', seedBeHeardEvents);
   focusUserButton?.addEventListener('click', focusUserLocation);
   useLocationButton?.addEventListener('click', applyCurrentLocationToForm);
@@ -544,6 +557,7 @@ function wireForms() {
 
   resourceList?.addEventListener('click', handleResourceCardClick);
   resourceList?.addEventListener('change', handleResourceCardChange);
+  osmQuestList?.addEventListener('click', handleOsmQuestClick);
 
   neighborhoodCarousel?.addEventListener('click', event => {
     const button = event.target.closest('[data-sector-focus]');
@@ -722,6 +736,7 @@ function initMap() {
 
   markersLayer = L.layerGroup().addTo(map);
   eventMarkersLayer = L.layerGroup().addTo(map);
+  osmBusinessLayer = L.layerGroup().addTo(map);
   neighborhoodPolygonsLayer = L.layerGroup().addTo(map);
 
   map.on('click', async event => {
@@ -1304,6 +1319,7 @@ function render() {
   renderCivicBasicsStrip();
   renderMapPreview();
   renderNeighborhoodExploreView();
+  renderOsmBusinessQuests();
   renderResources();
   renderMap();
   renderJobs();
@@ -1356,13 +1372,14 @@ function getFilteredResources() {
 
 function getResourcePriorityScore(item) {
   const scoreMap = {
-    water: 9, restroom: 9, shade: 8, outlet: 8, bike_rack: 7, trash_can: 7, garden: 6, fishing: 5, tree: 5,
+    water: 9, restroom: 9, shade: 8, outlet: 8, bike_rack: 7, trash_can: 7, garden: 6, fishing: 5, tree: 5, business: 4,
   };
   let score = scoreMap[item.resource] || 4;
   if (item.confirmations?.length) score += 2;
   if (item.photo || item.photos?.length) score += 1;
   if (activeIntent === 'entertainment' && ['garden','fishing','shade','tree'].includes(item.resource)) score += 3;
   if (activeIntent === 'interaction' && ['restroom','water','shade'].includes(item.resource)) score += 2;
+  if (activeIntent === 'entertainment' && item.resource === 'business') score += 2;
   if (activeIntent === 'nature' && ['shade','garden','tree','water','fishing'].includes(item.resource)) score += 4;
   if (activeIntent === 'purpose' && ['garden','trash_can','water','restroom','bike_rack'].includes(item.resource)) score += 3;
   if (activeTravelMode === 'foot' && ['water','restroom','shade'].includes(item.resource)) score += 2;
@@ -1396,20 +1413,226 @@ function renderResources() {
   decorateResourceCards(resources);
 }
 
+function getVisibleOsmBusinessQuests() {
+  const sectorValue = sectorFilter?.value || 'all';
+  const typeValue = resourceFilter?.value || 'all';
+  return osmBusinessQuests
+    .filter(item => sectorValue === 'all' || item.sector === sectorValue)
+    .filter(item => typeValue === 'all' || typeValue === 'business')
+    .filter(item => !isOsmQuestCleared(item))
+    .slice(0, 60);
+}
+
+function renderOsmBusinessQuests() {
+  if (!osmQuestList || !osmQuestStatus) return;
+  const quests = getVisibleOsmBusinessQuests();
+  const focused = getFocusedSector();
+
+  if (osmBusinessLoading) {
+    osmQuestStatus.textContent = 'Searching OpenStreetMap for foggy businesses nearby...';
+    osmQuestList.innerHTML = '<div class="empty">Looking for nearby quests...</div>';
+    return;
+  }
+
+  if (!osmBusinessQuests.length) {
+    osmQuestStatus.textContent = focused
+      ? `No OSM quests loaded for ${focused} yet.`
+      : 'No OSM quests loaded yet. Pick a neighborhood or use the map, then find quests.';
+    osmQuestList.innerHTML = '';
+    return;
+  }
+
+  osmQuestStatus.textContent = quests.length
+    ? `${quests.length} foggy OSM place${quests.length === 1 ? '' : 's'} ready to scout.`
+    : 'All loaded OSM places in this view already have matching Groundwork pins.';
+  osmQuestList.innerHTML = quests.map(renderOsmQuestCard).join('');
+}
+
+function renderOsmQuestCard(item) {
+  return `
+    <article class="quest-card" data-osm-quest-id="${escapeAttribute(item.id)}">
+      <div>
+        <p class="eyebrow">FOGGY QUEST</p>
+        <h3>${escapeHtml(item.name)}</h3>
+        <p>${escapeHtml(item.kindLabel)} in ${escapeHtml(item.sector)}</p>
+      </div>
+      <button class="button small" type="button" data-osm-quest-action="scout" data-osm-quest-id="${escapeAttribute(item.id)}">Scout spot</button>
+    </article>
+  `;
+}
+
+async function loadOsmBusinessQuests() {
+  if (osmBusinessLoading) return;
+  const bounds = getOsmBusinessBounds();
+  const cacheKey = bounds.map(value => value.toFixed(4)).join(',');
+  if (cacheKey === osmBusinessCacheKey && osmBusinessQuests.length) {
+    renderOsmBusinessQuests();
+    toastMessage('OSM quests already loaded for this area.');
+    return;
+  }
+
+  osmBusinessLoading = true;
+  renderOsmBusinessQuests();
+
+  try {
+    const elements = await fetchOsmBusinesses(bounds);
+    osmBusinessQuests = dedupeBy(elements
+      .map(normalizeOsmBusinessElement)
+      .filter(Boolean)
+      .filter(item => !isOsmQuestCleared(item)), item => item.id)
+      .slice(0, 90);
+    osmBusinessCacheKey = cacheKey;
+    renderOsmBusinessQuests();
+    renderMap();
+    toastMessage(osmBusinessQuests.length ? `Found ${osmBusinessQuests.length} foggy business quests.` : 'No new OSM businesses found here.');
+  } catch (error) {
+    console.warn(error);
+    osmQuestStatus.textContent = 'Could not reach OpenStreetMap right now. Try again in a minute.';
+    toastMessage('OSM quest lookup failed.');
+  } finally {
+    osmBusinessLoading = false;
+    renderOsmBusinessQuests();
+  }
+}
+
+function getOsmBusinessBounds() {
+  const focused = getFocusedSector();
+  if (focused && SECTOR_COORDS[focused]) {
+    const [lat, lng] = SECTOR_COORDS[focused];
+    const size = NEIGHBORHOOD_BOUNDS[focused] || { latDelta: 0.012, lngDelta: 0.016 };
+    return [lat - size.latDelta, lng - size.lngDelta, lat + size.latDelta, lng + size.lngDelta];
+  }
+
+  if (map) {
+    const bounds = map.getBounds();
+    const south = bounds.getSouth();
+    const west = bounds.getWest();
+    const north = bounds.getNorth();
+    const east = bounds.getEast();
+    if ((north - south) <= 0.12 && (east - west) <= 0.16) {
+      return [south, west, north, east];
+    }
+  }
+
+  const [lat, lng] = SECTOR_COORDS.Downtown;
+  return [lat - 0.014, lng - 0.018, lat + 0.014, lng + 0.018];
+}
+
+async function fetchOsmBusinesses(bounds) {
+  const [south, west, north, east] = bounds.map(Number);
+  const bbox = `${south},${west},${north},${east}`;
+  const query = `
+    [out:json][timeout:20];
+    (
+      node["name"]["shop"](${bbox});
+      way["name"]["shop"](${bbox});
+      relation["name"]["shop"](${bbox});
+      node["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace"](${bbox});
+      way["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace"](${bbox});
+      relation["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace"](${bbox});
+      node["name"]["tourism"~"museum|gallery|hotel|attraction"](${bbox});
+      way["name"]["tourism"~"museum|gallery|hotel|attraction"](${bbox});
+      relation["name"]["tourism"~"museum|gallery|hotel|attraction"](${bbox});
+      node["name"]["craft"](${bbox});
+      way["name"]["craft"](${bbox});
+      relation["name"]["craft"](${bbox});
+      node["name"]["office"](${bbox});
+      way["name"]["office"](${bbox});
+      relation["name"]["office"](${bbox});
+    );
+    out center 90;
+  `;
+
+  const response = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain;charset=UTF-8' },
+    body: query,
+  });
+  if (!response.ok) throw new Error(`Overpass failed: ${response.status}`);
+  const data = await response.json();
+  return Array.isArray(data.elements) ? data.elements : [];
+}
+
+function normalizeOsmBusinessElement(element) {
+  const tags = element.tags || {};
+  const lat = Number(element.lat ?? element.center?.lat);
+  const lng = Number(element.lon ?? element.center?.lon);
+  const name = String(tags.name || '').trim();
+  if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const kind = tags.shop || tags.amenity || tags.tourism || tags.craft || tags.office || 'business';
+  return {
+    id: `${element.type}/${element.id}`,
+    osmType: element.type,
+    osmId: String(element.id),
+    name,
+    kind,
+    kindLabel: titleCase(kind.replace(/_/g, ' ')),
+    lat: roundCoord(lat),
+    lng: roundCoord(lng),
+    sector: nearestSector(lat, lng),
+    source: 'openstreetmap',
+  };
+}
+
+function isOsmQuestCleared(quest) {
+  const resources = deriveResources();
+  const questName = normalizePlaceName(quest.name);
+  return resources.some(resource => {
+    if (resource.osmId && resource.osmId === quest.osmId) return true;
+    const resourceName = normalizePlaceName(resource.placeName || resource.note);
+    if (questName && resourceName && questName === resourceName) return true;
+    const [lat, lng] = resolveCoords(resource);
+    return distanceMiles({ lat: quest.lat, lng: quest.lng }, { lat, lng }) < 0.035;
+  });
+}
+
+function handleOsmQuestClick(event) {
+  const button = event.target.closest('[data-osm-quest-action]');
+  if (!button) return;
+  const quest = osmBusinessQuests.find(item => item.id === button.dataset.osmQuestId);
+  if (!quest) return;
+  startOsmBusinessQuest(quest);
+}
+
+function startOsmBusinessQuest(quest) {
+  if (!resourceForm) return;
+  window.location.hash = 'map';
+  resourceForm.resource.value = 'business';
+  resourceForm.scope.value = 'public';
+  resourceForm.sector.value = quest.sector;
+  resourceForm.access.value = 'public';
+  resourceForm.note.value = `Scout ${quest.name}`;
+  resourceForm.locationQuery.value = quest.name;
+  resourceForm.lat.value = quest.lat;
+  resourceForm.lng.value = quest.lng;
+  resourceForm.placeName.value = quest.name;
+  resourceForm.address.value = '';
+  pendingLocation = { lat: quest.lat, lng: quest.lng };
+  renderPendingMarker();
+  renderSelectedLocationCard(quest.name, `${quest.kindLabel} from OpenStreetMap`, 'Foggy quest selected');
+  resourceForm.dataset.osmId = quest.osmId;
+  resourceForm.dataset.osmType = quest.osmType;
+  resourceForm.dataset.osmSource = 'openstreetmap';
+  resourceForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  toastMessage('Quest started. Add a photo or note to clear this spot.');
+}
+
 function renderMap() {
   if (!map || !markersLayer || !eventMarkersLayer) return;
 
   markersLayer.clearLayers();
   eventMarkersLayer.clearLayers();
+  osmBusinessLayer?.clearLayers();
   neighborhoodPolygonsLayer?.clearLayers();
 
   const resources = getFilteredResources();
   const events = getRenderableEvents();
+  const quests = getVisibleOsmBusinessQuests();
   const bounds = [];
 
   renderNeighborhoodPolygons();
 
-  if (!resources.length && !events.length) {
+  if (!resources.length && !events.length && !quests.length) {
     renderPendingMarker();
     return;
   }
@@ -1425,6 +1648,25 @@ function renderMap() {
       `${item.address ? `${escapeHtml(item.address)}<br>` : ''}` +
       `${escapeHtml(item.sector)} · ${escapeHtml(item.access)}<br>` +
       `<small>by ${escapeHtml(item.alias || 'Groundwork')}</small>`
+    );
+  });
+
+  quests.forEach(item => {
+    bounds.push([item.lat, item.lng]);
+    const marker = L.circleMarker([item.lat, item.lng], {
+      radius: 8,
+      color: '#d5b14a',
+      weight: 1,
+      opacity: 0.45,
+      fillColor: '#d5b14a',
+      fillOpacity: 0.16,
+      className: 'osm-quest-marker',
+    }).addTo(osmBusinessLayer || markersLayer);
+    marker.bindPopup(
+      `<strong>Foggy quest: ${escapeHtml(item.name)}</strong><br>` +
+      `${escapeHtml(item.kindLabel)}<br>` +
+      `${escapeHtml(item.sector)}<br>` +
+      `<small>Scout it to clear this spot.</small>`
     );
   });
 
@@ -2646,6 +2888,10 @@ async function handleResourceSubmit(event) {
     photo: resourcePreview.dataset.photo || '',
     alias: state.identity.alias,
     groupId,
+    source: resourceForm?.dataset.osmSource || '',
+    osmId: resourceForm?.dataset.osmId || '',
+    osmType: resourceForm?.dataset.osmType || '',
+    questStatus: resourceForm?.dataset.osmId ? 'scouted' : '',
     accessibility: {
       adaStatus: String(fd.get('adaStatus') || 'unknown'),
       wheelchairAccess: String(fd.get('wheelchairAccess') || 'unknown'),
@@ -2670,10 +2916,14 @@ async function handleResourceSubmit(event) {
   editingResourceId = null;
   clearPendingLocation();
   resourcePreview.dataset.photo = '';
+  delete resourceForm.dataset.osmId;
+  delete resourceForm.dataset.osmType;
+  delete resourceForm.dataset.osmSource;
   resourcePreview.innerHTML = '';
   resourcePreview.classList.add('hidden');
   const submitButton = resourceForm?.querySelector('button[type="submit"]');
   if (submitButton) submitButton.textContent = 'Post pin';
+  renderOsmBusinessQuests();
   renderResources();
   renderMap();
   syncWithRelays();
@@ -2847,6 +3097,9 @@ function startResourceEdit(resourceId) {
     resourceForm.lng.value = resource.lng || '';
     resourceForm.placeName.value = resource.placeName || '';
     resourceForm.address.value = resource.address || '';
+    resourceForm.dataset.osmId = resource.osmId || '';
+    resourceForm.dataset.osmType = resource.osmType || '';
+    resourceForm.dataset.osmSource = resource.source || '';
 
     const submitButton = resourceForm.querySelector('button[type="submit"]');
     if (submitButton) submitButton.textContent = 'Update pin';
@@ -3999,6 +4252,34 @@ function escapeAttribute(value) {
 function capitalize(value) {
   const text = String(value || '');
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function titleCase(value) {
+  return String(value || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(capitalize)
+    .join(' ');
+}
+
+function normalizePlaceName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function nearestSector(lat, lng) {
+  let best = 'Downtown';
+  let bestDistance = Infinity;
+  Object.entries(SECTOR_COORDS).forEach(([sector, coords]) => {
+    const distance = distanceMiles({ lat, lng }, { lat: coords[0], lng: coords[1] });
+    if (distance < bestDistance) {
+      best = sector;
+      bestDistance = distance;
+    }
+  });
+  return best;
 }
 
 function roundCoord(value) {

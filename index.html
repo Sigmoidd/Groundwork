@@ -127,6 +127,7 @@
 <option value="fishing">Fishing spot</option>
 <option value="bike_rack">Bike rack</option>
 <option value="trash_can">Trash can</option>
+<option value="business">Business</option>
 </select>
 <select id="sectorFilter">
 <option value="all">All sectors</option>
@@ -145,6 +146,14 @@
 </section>
 <div aria-live="polite" class="neighborhood-explore neighborhood-explore-compact" id="neighborhoodExploreView"></div>
 <p class="help compact-help">Attach a point of interest by name or address, use current location, or let EXIF GPS fill it from a photo. Groundwork keeps place labels human, not lat / long.</p>
+<div class="quest-strip">
+<div>
+<strong>Foggy business quests</strong>
+<p class="help compact-help" id="osmQuestStatus">Pull nearby OpenStreetMap businesses, then scout one to clear the fog.</p>
+</div>
+<button class="button small" id="loadOsmBusinessesButton" type="button">Find quests</button>
+</div>
+<div aria-live="polite" class="quest-list" id="osmQuestList"></div>
 <div aria-live="polite" class="card-list compact-resource-list" id="resourceList"></div>
 
 
@@ -182,6 +191,7 @@
 <option value="fishing">Fishing spot</option>
 <option value="bike_rack">Bike rack</option>
 <option value="trash_can">Trash can</option>
+<option value="business">Business / place</option>
 </select>
 </label>
 <label>

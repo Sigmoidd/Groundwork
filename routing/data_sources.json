@@ -1,12 +1,42 @@
 {
   "version": "0.1",
   "base_url": "https://data.okc.gov/services/portal/api",
+  "city_bounds": {
+    "name": "Oklahoma City public-data build extent",
+    "bbox_lon_lat": [-97.85, 35.25, -97.15, 35.75]
+  },
+  "download_policy": {
+    "commit_raw_downloads": false,
+    "reason": "OKC public portal terms restrict redistribution or resale. Fetch during ingest and commit only scripts, source metadata, and derived schema."
+  },
   "notes": [
     "Fetch public source data during ingest; do not commit downloaded OKC data without license review.",
     "The OKC portal records API returns tabular records. The map API returns full feature geometry in decimal degrees.",
     "OpenStreetMap data is ODbL and requires attribution and share-alike handling for derived databases."
   ],
   "okc_open_data": [
+    {
+      "key": "street_centerlines",
+      "dataset": "Street Centerlines",
+      "dataset_id": 1,
+      "type": "line",
+      "priority": "required",
+      "use": "Fallback street topology, road names, and address ranges when OSM sidewalk detail is thin.",
+      "viewer": "https://data.okc.gov/portal/page/viewer?datasetName=Street%20Centerlines",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Street%20Centerlines",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Street%20Centerlines"
+    },
+    {
+      "key": "city_boundaries",
+      "dataset": "City Boundaries",
+      "dataset_id": 5,
+      "type": "polygon",
+      "priority": "required",
+      "use": "Clip stewardship cells, routing build extents, and public-data exports to OKC boundaries.",
+      "viewer": "https://data.okc.gov/portal/page/viewer?datasetName=City%20Boundaries",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/City%20Boundaries",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/City%20Boundaries"
+    },
     {
       "key": "hvi_2020",
       "dataset": "Heat Vulnerability Study 2020",
@@ -85,6 +115,17 @@
       "map_api": "https://data.okc.gov/services/portal/api/map/layers/Bike%20Routes"
     },
     {
+      "key": "bike_projects",
+      "dataset": "Bike Projects",
+      "dataset_id": 202,
+      "type": "line_or_point",
+      "priority": "required",
+      "use": "Near-term bike/e-bike network changes and project-awareness overlays.",
+      "viewer": "https://data.okc.gov/portal/page/viewer?datasetName=Bike%20Projects",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Bike%20Projects",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Bike%20Projects"
+    },
+    {
       "key": "active_pedestrian_projects",
       "dataset": "Active Pedestrian Projects",
       "dataset_id": 203,
@@ -107,6 +148,28 @@
       "map_api": "https://data.okc.gov/services/portal/api/map/layers/Pavement%20Condition"
     },
     {
+      "key": "work_zones",
+      "dataset": "Work Zones",
+      "dataset_id": 68,
+      "type": "line_or_polygon_or_point",
+      "priority": "required",
+      "use": "Active work zones, sidewalk closures, lane closures, and construction routing penalties.",
+      "viewer": "https://data.okc.gov/portal/page/viewer?datasetName=Work%20Zones",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Work%20Zones",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Work%20Zones"
+    },
+    {
+      "key": "adopted_streets",
+      "dataset": "Adopted Streets",
+      "dataset_id": 51,
+      "type": "line",
+      "priority": "optional",
+      "use": "Stewardship context and community care signals for planner/organizing layers.",
+      "viewer": "https://data.okc.gov/portal/page/viewer?datasetName=Adopted%20Streets",
+      "records_api": "https://data.okc.gov/services/portal/api/data/records/Adopted%20Streets",
+      "map_api": "https://data.okc.gov/services/portal/api/map/layers/Adopted%20Streets"
+    },
+    {
       "key": "address_information",
       "dataset": "Address Information",
       "dataset_id": 30,
@@ -124,7 +187,16 @@
       "source": "OpenStreetMap",
       "license": "ODbL",
       "use": "Base pedestrian, bike/e-bike, street, path, crossing, cycleway, bike parking, bike repair, and amenity network.",
-      "download": "https://download.geofabrik.de/north-america/us/oklahoma.html"
+      "download": "https://download.geofabrik.de/north-america/us/oklahoma.html",
+      "overpass": "https://overpass-api.de/api/interpreter"
+    },
+    {
+      "key": "embark_gtfs_static",
+      "source": "EMBARK static GTFS via Transitland-listed provider URL",
+      "license": "provider-specific",
+      "use": "Transit stops, transit hubs, mixed-mode planning, and bus/walk alternates.",
+      "download": "https://mna.mecatran.com/utw/ws/gtfsfeed/static/okc?apiKey=6a3b186a334d1e3e064f42782f6002520e60394c",
+      "info": "https://www.transit.land/feeds/f-9y69-embark"
     },
     {
       "key": "gbfs_micromobility",

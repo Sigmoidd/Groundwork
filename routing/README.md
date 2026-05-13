@@ -71,18 +71,35 @@ https://data.okc.gov/services/portal/api/map/layers/Trails?minLatitude=35.3&maxL
 
 1. Create PostGIS database.
 2. Run [schema.sql](./schema.sql).
-3. Fetch source schemas and raw records using [scripts/check_sources.js](./scripts/check_sources.js).
-4. Ingest OSM walkable streets and paths into `gw.routing_edges`.
-5. Ingest OKC Trails, Bike Routes, Parks, Facilities, Park Amenities, Fire
-   Stations, and HVI layers into staging tables.
-6. Normalize amenities into `gw.amenity_nodes`.
-7. Spatial-join HVI to routing edges.
-8. Merge community topology reports into edge attributes.
-9. Run [cost_function.sql](./cost_function.sql).
-10. Run [knowledge_graph.sql](./knowledge_graph.sql).
-11. Refresh KG mirrors with `gw.kg_refresh_routing()` and, when planner
+3. Fetch public source data using [scripts/fetch_city_data.js](./scripts/fetch_city_data.js).
+4. Load [city_data_ingest.sql](./city_data_ingest.sql).
+5. Load generated SQL from `routing/build/source_catalog.sql` and
+   `routing/build/load_city_features.sql`.
+6. Normalize city data with `gw.normalize_city_data()`.
+7. Ingest OSM walkable streets and paths into `gw.routing_edges`.
+8. Normalize amenities into `gw.amenity_nodes`.
+9. Spatial-join HVI to routing edges.
+10. Merge city project and work-zone data into route penalties.
+11. Run [cost_function.sql](./cost_function.sql).
+12. Run [knowledge_graph.sql](./knowledge_graph.sql).
+13. Refresh KG mirrors with `gw.kg_refresh_routing()` and, when planner
     tables are loaded, `gw.kg_refresh_planner()`.
-12. Test benchmark routes from [test_pairs.sql](./test_pairs.sql).
+14. Test benchmark routes from [test_pairs.sql](./test_pairs.sql).
+
+One-command local/VPS seed:
+
+```bash
+DATABASE_URL=postgres://user:pass@host:5432/groundwork ./routing/seed_okc.sh
+```
+
+PowerShell:
+
+```powershell
+.\routing\seed_okc.ps1 -DatabaseUrl "postgres://user:pass@host:5432/groundwork"
+```
+
+The fetch step writes raw downloads under `routing/data/raw/` and generated SQL
+under `routing/build/`. Those folders are intentionally gitignored.
 
 ## Case Study Question
 
@@ -117,6 +134,8 @@ The core routing tables:
 - `gw.hvi_areas`
 - `gw.community_edge_reports`
 - `gw.source_catalog`
+- `gw.raw_city_features`
+- `gw.city_project_impacts`
 
 The planner and stewardship tables are also typed source tables:
 
@@ -186,6 +205,56 @@ bench present
 
 Reports should be pseudonymous, time-decayed, and trust-weighted. The router
 should treat low-risk confirmed topology reports as data, not comments.
+
+## City Data Layer
+
+The first real build uses these public layers:
+
+- OKC Street Centerlines
+- OKC City Boundaries
+- OKC Heat Vulnerability Study 2020
+- OKC Parks
+- OKC Trails
+- OKC Park Amenities
+- OKC Facilities
+- OKC Fire Stations
+- OKC Bike Routes
+- OKC Bike Projects
+- OKC Active Pedestrian Projects
+- OKC Pavement Condition
+- OKC Work Zones
+- OKC Adopted Streets
+- OKC Address Information
+- OpenStreetMap walk/bike ways and useful public amenities
+- EMBARK static GTFS stops
+- NOAA/NWS weather point metadata
+
+`scripts/fetch_city_data.js` fetches OKC map layers into GeoJSON, converts OSM
+Overpass output into GeoJSON when `--with-osm` is used, and emits SQL that calls
+`gw.import_city_feature(...)`. If the OKC portal blocks automated API access,
+download the same layers from the portal UI, place them in `routing/data/raw/`,
+and keep them out of git. The normalization functions do not require raw data to
+be committed.
+
+After loading raw features:
+
+```sql
+SELECT * FROM gw.normalize_city_data();
+```
+
+That normalizes:
+
+- HVI polygons into `gw.hvi_areas`
+- parks, facilities, fire stations, OSM amenities, and GTFS stops into
+  `gw.amenity_nodes`
+- trails, bike routes, street centerlines, and OSM walk/bike ways into
+  `gw.routing_edges`
+- city project/work-zone layers into `gw.city_project_impacts`
+- the first five stewardship Voronoi seeds into `gw.stewardship_cells`
+
+The first five stewardship seeds are Uptown, Paseo, Midtown, Southside, and
+Capitol Hill. Voronoi cells are rebuilt in PostGIS so route edges can be linked
+to the responsible stewardship cell.
 
 ## User-Facing Copy
 

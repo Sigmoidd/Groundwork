@@ -1,0 +1,5 @@
+build/
+data/raw/
+data/gtfs/
+source_check/
+*.log

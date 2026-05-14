@@ -281,6 +281,33 @@ capability_attestation = {
 }
 ```
 
+The relay v0.2 wire token is deliberately plain and strict:
+
+```
+capability_token = {
+  schema: "grtap.blind.token.v1",
+  kind: "capability",
+  capability: string,
+  thresholdClass: "public" | "contributor" | "established" | "trusted" | "keeper",
+  relayScopeHash: sha256_hex,
+  actionScopeHash: sha256_hex,
+  issuedAt: unix_ms,
+  expiresAt: unix_ms,
+  tokenNonce: base64url_nonce,
+  nullifier: base64url_nonce
+}
+```
+
+The verifier must reject a presentation unless the revealed token fields match
+the visible ask envelope. The ask envelope must name the required capability,
+minimum threshold class, relay scope hash, and action scope hash. Missing ask
+fields are verification failures, not defaults.
+
+The issuing relay must default-deny high-trust capability issuance. A fresh or
+unconfigured relay may issue only public-threshold capability tokens unless a
+local trust policy explicitly raises the maximum issuable threshold. A capability
+token must also meet the minimum threshold for that capability class.
+
 `threshold_class` should use coarse classes rather than exact trust values:
 
 ```
@@ -334,6 +361,7 @@ The attestation must not contain:
    - expiry
    - one-use nullifier
    - presentation proof
+   - strict equality between revealed token fields and the visible ask envelope
 ```
 
 The issuing relay may log that a local device requested a capability class. It
@@ -399,6 +427,26 @@ a roster.
 ### 7.2 Attendance ZK Flow
 
 ```
+
+The relay v0.2 blind attendance token uses the same strict presentation rule:
+
+```
+attendance_token = {
+  schema: "grtap.blind.token.v1",
+  kind: "attendance",
+  attendanceClass: "count" | "credit" | "occurrence",
+  eventCommitment: sha256_hex,
+  issuedAt: unix_ms,
+  expiresAt: unix_ms,
+  tokenNonce: base64url_nonce,
+  nullifier: base64url_nonce
+}
+```
+
+`count` is the safe default. `credit` and `occurrence` must be explicitly enabled
+by relay policy because they can create stronger incentives to preserve event
+records. A verifier must reject an attendance presentation unless the revealed
+attendance class and event commitment match the visible ask envelope.
 1. Private relay creates an event commitment:
    event_commitment = H(relay_event_secret, event_time_bucket, event_type_class)
 

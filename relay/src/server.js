@@ -5,15 +5,22 @@ const crypto = require('crypto');
 const { URL } = require('url');
 const EventEmitter = require('events');
 const {
+  ATTENDANCE_TOKEN_FIELDS,
+  CAPABILITY_MIN_THRESHOLD,
+  CAPABILITY_TOKEN_FIELDS,
   castShade,
   fitsBranch,
   fitsLantern,
+  fitsStrictAttendanceAsk,
+  fitsStrictCapabilityAsk,
   makeLantern,
   makeLeaf,
   openCanopy,
   readBundle,
   readLantern,
   readLeaf,
+  thresholdRank,
+  verifyBlindToken,
   stoneKey
 } = require('./canopy');
 
@@ -23,8 +30,14 @@ const DATA_FILE = path.join(DATA_DIR, 'events.ndjson');
 const CANOPY_FILE = path.join(DATA_DIR, 'canopy.ndjson');
 const LANTERN_FILE = path.join(DATA_DIR, 'lantern.ndjson');
 const STONES_FILE = path.join(DATA_DIR, 'stones.ndjson');
+const SAFETY_FILE = path.join(DATA_DIR, 'safety-signals.ndjson');
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 262144);
 const MAX_EVENT_BODY_BYTES = Number(process.env.MAX_EVENT_BODY_BYTES || 131072);
+const SPENT_NULLIFIER_RETENTION_MS = Number(process.env.SPENT_NULLIFIER_RETENTION_MS || 30 * 24 * 60 * 60 * 1000);
+const ENABLE_LEGACY_TOKENS = process.env.CANOPY_ENABLE_LEGACY_TOKENS === '1';
+const MAX_ISSUABLE_THRESHOLD = process.env.CANOPY_MAX_ISSUABLE_THRESHOLD || 'public';
+const ALLOW_ATTENDANCE_CREDIT = process.env.CANOPY_ALLOW_ATTENDANCE_CREDIT === '1';
+const ALLOW_ATTENDANCE_OCCURRENCE = process.env.CANOPY_ALLOW_ATTENDANCE_OCCURRENCE === '1';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const RELAY_NAME = process.env.RELAY_NAME || 'Groundwork Relay';
 const PUBLIC_KINDS = new Set([
@@ -53,14 +66,14 @@ const bus = new EventEmitter();
 const events = [];
 const byId = new Map();
 const writeCounts = new Map();
-const stones = new Set();
+const stones = new Map();
 let garden = null;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(DATA_FILE)) {
   fs.writeFileSync(DATA_FILE, '');
 }
-for (const file of [CANOPY_FILE, LANTERN_FILE, STONES_FILE]) {
+for (const file of [CANOPY_FILE, LANTERN_FILE, STONES_FILE, SAFETY_FILE]) {
   if (!fs.existsSync(file)) {
     fs.writeFileSync(file, '');
   }
@@ -248,28 +261,130 @@ function appendLine(file, value) {
   fs.appendFileSync(file, JSON.stringify({ ...value, receivedAt: Date.now() }) + '\n');
 }
 
+function publicThreshold(value) {
+  const rank = thresholdRank(value);
+  return rank >= 0 ? rank : 0;
+}
+
+function canIssueCapability(token) {
+  const minimum = CAPABILITY_MIN_THRESHOLD[token.capability] || 'keeper';
+  if (publicThreshold(token.thresholdClass) < publicThreshold(minimum)) {
+    return { ok: false, error: `${token.capability} requires ${minimum} threshold` };
+  }
+  if (publicThreshold(token.thresholdClass) > publicThreshold(MAX_ISSUABLE_THRESHOLD)) {
+    return { ok: false, error: 'capability unavailable' };
+  }
+  return { ok: true };
+}
+
+function canIssueAttendance(token) {
+  if (token.attendanceClass === 'count') {
+    return { ok: true };
+  }
+  if (token.attendanceClass === 'credit' && ALLOW_ATTENDANCE_CREDIT) {
+    return { ok: true };
+  }
+  if (token.attendanceClass === 'occurrence' && ALLOW_ATTENDANCE_OCCURRENCE) {
+    return { ok: true };
+  }
+  return { ok: false, error: 'attendance class unavailable' };
+}
+
+function canIssueBlindToken(token) {
+  return token.kind === 'capability'
+    ? canIssueCapability(token)
+    : canIssueAttendance(token);
+}
+
 function loadStones() {
+  const now = Date.now();
+  const kept = [];
   const lines = fs.readFileSync(STONES_FILE, 'utf8').split('\n').filter(Boolean);
   for (const line of lines) {
     try {
       const item = JSON.parse(line);
-      if (item && item.key) {
-        stones.add(item.key);
+      const expiresAt = Number(item?.expiresAt || item?.meta?.expiresAt || 0);
+      const receivedAt = Number(item?.receivedAt || 0);
+      const keepUntil = expiresAt
+        ? expiresAt + SPENT_NULLIFIER_RETENTION_MS
+        : receivedAt + SPENT_NULLIFIER_RETENTION_MS;
+      if (item && item.key && (!Number.isFinite(keepUntil) || keepUntil > now)) {
+        stones.set(item.key, keepUntil || 0);
+        kept.push(item);
       }
     } catch (err) {
       console.error('Skipping bad line in stones.ndjson:', err.message);
     }
   }
+  if (kept.length !== lines.length) {
+    fs.writeFileSync(STONES_FILE, kept.map((item) => JSON.stringify(item)).join('\n') + (kept.length ? '\n' : ''));
+  }
 }
 
 function layStone(kind, nullifier, meta = {}) {
   const key = stoneKey(kind, nullifier);
-  if (stones.has(key)) {
+  const now = Date.now();
+  const existingUntil = Number(stones.get(key) || 0);
+  if (stones.has(key) && (!existingUntil || existingUntil > now)) {
     return { ok: false, error: 'already used' };
   }
-  stones.add(key);
-  appendLine(STONES_FILE, { key, kind, meta });
+  const expiresAt = Number(meta.expiresAt || 0);
+  const keepUntil = expiresAt ? expiresAt + SPENT_NULLIFIER_RETENTION_MS : now + SPENT_NULLIFIER_RETENTION_MS;
+  stones.set(key, keepUntil);
+  appendLine(STONES_FILE, { key, kind, expiresAt: expiresAt || null, meta });
   return { ok: true, key };
+}
+
+function safeSignal(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { ok: false, error: 'signal must be an object' };
+  }
+  const allowedKeys = new Set([
+    'schema',
+    'tokenKind',
+    'nullifierHash',
+    'signalClass',
+    'observedAtBucket',
+    'reportNonce'
+  ]);
+  for (const key of Object.keys(payload)) {
+    if (!allowedKeys.has(key)) {
+      return { ok: false, error: 'signal contains disallowed detail' };
+    }
+  }
+  if (payload.schema !== 'grtap.safety.signal.v1') {
+    return { ok: false, error: 'unsupported signal schema' };
+  }
+  if (!['capability', 'attendance'].includes(payload.tokenKind)) {
+    return { ok: false, error: 'unsupported tokenKind' };
+  }
+  const nullifierHash = String(payload.nullifierHash || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(nullifierHash)) {
+    return { ok: false, error: 'nullifierHash must be sha256 hex' };
+  }
+  const signalClass = String(payload.signalClass || '').trim();
+  if (!['serious_safety_concern', 'coercion_concern', 'spam_or_abuse'].includes(signalClass)) {
+    return { ok: false, error: 'unsupported signalClass' };
+  }
+  const observedAtBucket = String(payload.observedAtBucket || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}(T\d{2})?$/.test(observedAtBucket)) {
+    return { ok: false, error: 'observedAtBucket must be date or hour bucket' };
+  }
+  const reportNonce = String(payload.reportNonce || '').trim();
+  if (!/^[A-Za-z0-9_-]{16,160}$/.test(reportNonce)) {
+    return { ok: false, error: 'reportNonce must be base64url' };
+  }
+  return {
+    ok: true,
+    signal: {
+      schema: payload.schema,
+      tokenKind: payload.tokenKind,
+      nullifierHash,
+      signalClass,
+      observedAtBucket,
+      reportNonce
+    }
+  };
 }
 
 function eventVisibleForQuery(event, query) {
@@ -456,19 +571,11 @@ const server = http.createServer((req, res) => {
         publicKeyPem: garden.publicKeyPem,
         publicJwk: garden.publicJwk,
         prepare: {
-          name: 'PrepareIdentity',
-          messageEncoding: 'utf8-json',
-          requiredTokenFields: [
-            'schema',
-            'kind',
-            'capability',
-            'thresholdClass',
-            'relayScopeHash',
-            'issuedAt',
-            'expiresAt',
-            'tokenNonce',
-            'nullifier'
-          ]
+          name: 'PrepareBlindTokenMessage',
+          messageEncoding: 'stable-json-sha384-domain-separated',
+          capabilityTokenFields: CAPABILITY_TOKEN_FIELDS,
+          attendanceTokenFields: ATTENDANCE_TOKEN_FIELDS,
+          verifierRule: 'revealed token fields must match the visible ask envelope'
         }
       }
     });
@@ -483,6 +590,10 @@ const server = http.createServer((req, res) => {
       if (!checked.ok) {
         return badRequest(res, checked.error);
       }
+      const allowed = canIssueBlindToken(checked.bundle.request);
+      if (!allowed.ok) {
+        return json(res, 403, { ok: false, error: allowed.error });
+      }
       let shade = '';
       try {
         shade = castShade(garden, checked.bundle.blinded);
@@ -494,10 +605,10 @@ const server = http.createServer((req, res) => {
         schema: checked.bundle.schema,
         keyId: checked.bundle.keyId,
         suite: checked.bundle.suite,
-        capability: checked.bundle.request.capability,
-        thresholdClass: checked.bundle.request.thresholdClass,
-        relayScopeHash: checked.bundle.request.relayScopeHash,
-        actionScopeHash: checked.bundle.request.actionScopeHash,
+        tokenKind: checked.bundle.request.kind,
+        capability: checked.bundle.request.capability || '',
+        thresholdClass: checked.bundle.request.thresholdClass || '',
+        attendanceClass: checked.bundle.request.attendanceClass || '',
         expiresAt: checked.bundle.request.expiresAt
       });
       return json(res, 201, {
@@ -515,11 +626,18 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'POST' && urlObj.pathname === '/v1/canopy/leaf') {
+    if (!ENABLE_LEGACY_TOKENS) {
+      return json(res, 410, { ok: false, error: 'legacy capability tokens disabled; use blind token presentation' });
+    }
     if (!rateLimit(req, 30)) {
       return json(res, 429, { ok: false, error: 'rate limited' });
     }
     return readJsonBody(req, res, (payload) => {
       const leaf = makeLeaf(payload);
+      const allowed = canIssueCapability(leaf);
+      if (!allowed.ok) {
+        return json(res, 403, { ok: false, error: allowed.error });
+      }
       appendLine(CANOPY_FILE, {
         event: 'leaf.minted',
         capability: leaf.capability,
@@ -537,6 +655,42 @@ const server = http.createServer((req, res) => {
       return json(res, 429, { ok: false, error: 'rate limited' });
     }
     return readJsonBody(req, res, (payload) => {
+      if (payload.token && payload.blindSig) {
+        const checked = verifyBlindToken(payload.token, payload.blindSig, garden);
+        if (!checked.ok) {
+          return badRequest(res, checked.error);
+        }
+        if (checked.token.kind !== 'capability') {
+          return badRequest(res, 'capability token required');
+        }
+        const branch = fitsStrictCapabilityAsk(checked.token, payload.ask);
+        if (!branch.ok) {
+          return badRequest(res, branch.error);
+        }
+        const stone = layStone('capability', checked.token.nullifier, {
+          capability: checked.token.capability,
+          thresholdClass: checked.token.thresholdClass,
+          expiresAt: checked.token.expiresAt
+        });
+        if (!stone.ok) {
+          return json(res, 409, { ok: false, error: stone.error });
+        }
+        return json(res, 200, {
+          ok: true,
+          held: {
+            schema: checked.token.schema,
+            kind: checked.token.kind,
+            capability: checked.token.capability,
+            thresholdClass: checked.token.thresholdClass,
+            relayScopeHash: checked.token.relayScopeHash,
+            actionScopeHash: checked.token.actionScopeHash,
+            expiresAt: checked.token.expiresAt
+          }
+        });
+      }
+      if (!ENABLE_LEGACY_TOKENS) {
+        return json(res, 410, { ok: false, error: 'legacy capability tokens disabled; use blind token presentation' });
+      }
       const checked = readLeaf(payload.leaf || payload);
       if (!checked.ok) {
         return badRequest(res, checked.error);
@@ -549,7 +703,8 @@ const server = http.createServer((req, res) => {
         capability: checked.leaf.capability,
         thresholdClass: checked.leaf.thresholdClass,
         relayScope: checked.leaf.relayScope,
-        actionScope: checked.leaf.actionScope
+        actionScope: checked.leaf.actionScope,
+        expiresAt: checked.leaf.expiresAt
       });
       if (!stone.ok) {
         return json(res, 409, { ok: false, error: stone.error });
@@ -572,7 +727,49 @@ const server = http.createServer((req, res) => {
       return json(res, 429, { ok: false, error: 'rate limited' });
     }
     return readJsonBody(req, res, (payload) => {
+      if (payload.blindedMsg) {
+        const checked = readBundle(payload, garden);
+        if (!checked.ok) {
+          return badRequest(res, checked.error);
+        }
+        if (checked.bundle.request.kind !== 'attendance') {
+          return badRequest(res, 'attendance token required');
+        }
+        const allowed = canIssueAttendance(checked.bundle.request);
+        if (!allowed.ok) {
+          return json(res, 403, { ok: false, error: allowed.error });
+        }
+        let blindSig = '';
+        try {
+          blindSig = castShade(garden, checked.bundle.blinded);
+        } catch (err) {
+          return badRequest(res, err.message);
+        }
+        appendLine(LANTERN_FILE, {
+          event: 'lantern.blind.cast',
+          attendanceClass: checked.bundle.request.attendanceClass,
+          expiresAt: checked.bundle.request.expiresAt
+        });
+        return json(res, 201, {
+          ok: true,
+          glow: {
+            schema: 'grtap.blind.response.v1',
+            keyId: checked.bundle.keyId,
+            suite: checked.bundle.suite,
+            blindSig,
+            issuedAt: Date.now(),
+            requestEcho: checked.bundle.request
+          }
+        });
+      }
+      if (!ENABLE_LEGACY_TOKENS) {
+        return json(res, 410, { ok: false, error: 'legacy attendance tokens disabled; use blind token presentation' });
+      }
       const lantern = makeLantern(payload);
+      const allowed = canIssueAttendance(lantern);
+      if (!allowed.ok) {
+        return json(res, 403, { ok: false, error: allowed.error });
+      }
       appendLine(LANTERN_FILE, {
         event: 'lantern.minted',
         attendanceClass: lantern.attendanceClass,
@@ -588,6 +785,39 @@ const server = http.createServer((req, res) => {
       return json(res, 429, { ok: false, error: 'rate limited' });
     }
     return readJsonBody(req, res, (payload) => {
+      if (payload.token && payload.blindSig) {
+        const checked = verifyBlindToken(payload.token, payload.blindSig, garden);
+        if (!checked.ok) {
+          return badRequest(res, checked.error);
+        }
+        if (checked.token.kind !== 'attendance') {
+          return badRequest(res, 'attendance token required');
+        }
+        const lantern = fitsStrictAttendanceAsk(checked.token, payload.ask);
+        if (!lantern.ok) {
+          return badRequest(res, lantern.error);
+        }
+        const stone = layStone('attendance', checked.token.nullifier, {
+          attendanceClass: checked.token.attendanceClass,
+          expiresAt: checked.token.expiresAt
+        });
+        if (!stone.ok) {
+          return json(res, 409, { ok: false, error: stone.error });
+        }
+        return json(res, 200, {
+          ok: true,
+          marked: {
+            schema: checked.token.schema,
+            kind: checked.token.kind,
+            attendanceClass: checked.token.attendanceClass,
+            eventCommitment: checked.token.eventCommitment,
+            expiresAt: checked.token.expiresAt
+          }
+        });
+      }
+      if (!ENABLE_LEGACY_TOKENS) {
+        return json(res, 410, { ok: false, error: 'legacy attendance tokens disabled; use blind token presentation' });
+      }
       const checked = readLantern(payload.lantern || payload);
       if (!checked.ok) {
         return badRequest(res, checked.error);
@@ -598,7 +828,8 @@ const server = http.createServer((req, res) => {
       }
       const stone = layStone('lantern', checked.lantern.nullifier, {
         attendanceClass: checked.lantern.attendanceClass,
-        eventCommitment: checked.lantern.eventCommitment
+        eventCommitment: checked.lantern.eventCommitment,
+        expiresAt: checked.lantern.expiresAt
       });
       if (!stone.ok) {
         return json(res, 409, { ok: false, error: stone.error });
@@ -611,6 +842,20 @@ const server = http.createServer((req, res) => {
           expiresAt: checked.lantern.expiresAt
         }
       });
+    });
+  }
+
+  if (req.method === 'POST' && urlObj.pathname === '/v1/canopy/signal') {
+    if (!rateLimit(req, 20)) {
+      return json(res, 429, { ok: false, error: 'rate limited' });
+    }
+    return readJsonBody(req, res, (payload) => {
+      const checked = safeSignal(payload);
+      if (!checked.ok) {
+        return badRequest(res, checked.error);
+      }
+      appendLine(SAFETY_FILE, checked.signal);
+      return json(res, 202, { ok: true, stored: true });
     });
   }
 
@@ -643,7 +888,7 @@ const server = http.createServer((req, res) => {
     return text(
       res,
       200,
-      `${RELAY_NAME}\n\nEndpoints:\nGET  /health\nGET  /v1/events\nPOST /v1/events\nGET  /v1/inbox/:recipient\nGET  /v1/stream\nGET  /v1/export.ndjson\nGET  /v1/canopy/seed\nPOST /v1/canopy/shade\nPOST /v1/canopy/leaf\nPOST /v1/canopy/hold\nPOST /v1/lantern/glow\nPOST /v1/lantern/mark\n`
+      `${RELAY_NAME}\n\nEndpoints:\nGET  /health\nGET  /v1/events\nPOST /v1/events\nGET  /v1/inbox/:recipient\nGET  /v1/stream\nGET  /v1/export.ndjson\nGET  /v1/canopy/seed\nPOST /v1/canopy/shade\nPOST /v1/canopy/hold\nPOST /v1/canopy/signal\nPOST /v1/lantern/glow\nPOST /v1/lantern/mark\n`
     );
   }
 

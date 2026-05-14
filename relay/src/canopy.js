@@ -4,6 +4,33 @@ const path = require('path');
 
 const DEFAULT_LEAF_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LANTERN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_CAPABILITY_TTL_MS = Number(process.env.CANOPY_MAX_CAPABILITY_TTL_MS || DEFAULT_LEAF_TTL_MS);
+const MAX_ATTENDANCE_TTL_MS = Number(process.env.CANOPY_MAX_ATTENDANCE_TTL_MS || DEFAULT_LANTERN_TTL_MS);
+const BLIND_SUITE = 'GRTAP-RSA-BLIND-SHA384-V1';
+const BLIND_TOKEN_SCHEMA = 'grtap.blind.token.v1';
+const BLIND_ISSUE_SCHEMA = 'grtap.blind.issue.v1';
+const CAPABILITY_TOKEN_FIELDS = [
+  'schema',
+  'kind',
+  'capability',
+  'thresholdClass',
+  'relayScopeHash',
+  'actionScopeHash',
+  'issuedAt',
+  'expiresAt',
+  'tokenNonce',
+  'nullifier'
+];
+const ATTENDANCE_TOKEN_FIELDS = [
+  'schema',
+  'kind',
+  'attendanceClass',
+  'eventCommitment',
+  'issuedAt',
+  'expiresAt',
+  'tokenNonce',
+  'nullifier'
+];
 const THRESHOLD_ORDER = ['public', 'contributor', 'established', 'trusted', 'keeper'];
 const KNOWN_CAPABILITIES = new Set([
   'map_confirm',
@@ -19,6 +46,21 @@ const KNOWN_CAPABILITIES = new Set([
   'attendance_credit_claim'
 ]);
 const KNOWN_ATTENDANCE = new Set(['count', 'credit', 'occurrence']);
+const CAPABILITY_MIN_THRESHOLD = {
+  map_confirm: 'public',
+  crew_join: 'public',
+  crew_chat: 'contributor',
+  dm_request: 'contributor',
+  invite_member: 'established',
+  create_event: 'contributor',
+  join_organizing_party: 'trusted',
+  private_relay_access: 'trusted',
+  vouch: 'keeper',
+  stewardship_reward_claim: 'contributor',
+  attendance_credit_claim: 'contributor'
+};
+const HASH_RE = /^[a-f0-9]{64}$/i;
+const NONCE_RE = /^[A-Za-z0-9_-]{16,160}$/;
 
 function softHash(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -36,6 +78,18 @@ function safeClass(value, allowed, fallback) {
 function safeThreshold(value) {
   const picked = safeText(value, 'public');
   return THRESHOLD_ORDER.includes(picked) ? picked : 'public';
+}
+
+function visibleThreshold(value) {
+  const picked = safeText(value);
+  if (!THRESHOLD_ORDER.includes(picked)) {
+    throw new Error('thresholdClass unknown');
+  }
+  return picked;
+}
+
+function thresholdRank(value) {
+  return THRESHOLD_ORDER.indexOf(safeThreshold(value));
 }
 
 function stableShape(value) {
@@ -57,6 +111,9 @@ function gardenSecret() {
   const configured = process.env.CANOPY_SECRET || process.env.RELAY_SECRET;
   if (configured && configured.length >= 32) {
     return configured;
+  }
+  if (process.env.NODE_ENV === 'production' || process.env.CANOPY_REQUIRE_SECRET === '1') {
+    throw new Error('CANOPY_SECRET must be set');
   }
   return 'groundwork-local-canopy-dev-secret-change-before-deploy';
 }
@@ -133,6 +190,257 @@ function stoneKey(kind, nullifier) {
   return softHash(`${kind}:${nullifier}`);
 }
 
+function exactKeys(input, allowedKeys) {
+  const actual = Object.keys(input || {}).sort();
+  const allowed = [...allowedKeys].sort();
+  if (actual.length !== allowed.length) {
+    return false;
+  }
+  return actual.every((key, index) => key === allowed[index]);
+}
+
+function visibleHash(value, label) {
+  const text = safeText(value);
+  if (!HASH_RE.test(text)) {
+    throw new Error(`${label} must be a sha256 hex hash`);
+  }
+  return text.toLowerCase();
+}
+
+function visibleNonce(value, label) {
+  const text = safeText(value);
+  if (!NONCE_RE.test(text)) {
+    throw new Error(`${label} must be a base64url nonce`);
+  }
+  return text;
+}
+
+function visibleTimeWindow(issuedAtValue, expiresAtValue, maxTtlMs) {
+  const issuedAt = Number(issuedAtValue);
+  const expiresAt = Number(expiresAtValue);
+  const now = nowMs();
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt)) {
+    throw new Error('issuedAt and expiresAt are required');
+  }
+  if (issuedAt > now + 60_000) {
+    throw new Error('issuedAt is too far in the future');
+  }
+  if (expiresAt <= now) {
+    throw new Error('token expired');
+  }
+  if (expiresAt <= issuedAt) {
+    throw new Error('expiresAt must be after issuedAt');
+  }
+  if (expiresAt - issuedAt > maxTtlMs) {
+    throw new Error('token ttl too long');
+  }
+  return { issuedAt, expiresAt };
+}
+
+function readCapabilityToken(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'token must be an object' };
+  }
+  try {
+    if (!exactKeys(input, CAPABILITY_TOKEN_FIELDS)) {
+      throw new Error('capability token fields do not match schema');
+    }
+    if (safeText(input.schema) !== BLIND_TOKEN_SCHEMA) {
+      throw new Error('unsupported token schema');
+    }
+    if (safeText(input.kind) !== 'capability') {
+      throw new Error('token kind must be capability');
+    }
+    const capability = safeClass(input.capability, KNOWN_CAPABILITIES, '');
+    if (!capability) {
+      throw new Error('capability unknown');
+    }
+    const thresholdClass = visibleThreshold(input.thresholdClass);
+    const relayScopeHash = visibleHash(input.relayScopeHash, 'relayScopeHash');
+    const actionScopeHash = visibleHash(input.actionScopeHash, 'actionScopeHash');
+    const { issuedAt, expiresAt } = visibleTimeWindow(input.issuedAt, input.expiresAt, MAX_CAPABILITY_TTL_MS);
+    return {
+      ok: true,
+      token: {
+        schema: BLIND_TOKEN_SCHEMA,
+        kind: 'capability',
+        capability,
+        thresholdClass,
+        relayScopeHash,
+        actionScopeHash,
+        issuedAt,
+        expiresAt,
+        tokenNonce: visibleNonce(input.tokenNonce, 'tokenNonce'),
+        nullifier: visibleNonce(input.nullifier, 'nullifier')
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+function readAttendanceToken(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: 'token must be an object' };
+  }
+  try {
+    if (!exactKeys(input, ATTENDANCE_TOKEN_FIELDS)) {
+      throw new Error('attendance token fields do not match schema');
+    }
+    if (safeText(input.schema) !== BLIND_TOKEN_SCHEMA) {
+      throw new Error('unsupported token schema');
+    }
+    if (safeText(input.kind) !== 'attendance') {
+      throw new Error('token kind must be attendance');
+    }
+    const attendanceClass = safeClass(input.attendanceClass, KNOWN_ATTENDANCE, '');
+    if (!attendanceClass) {
+      throw new Error('attendance class unknown');
+    }
+    const { issuedAt, expiresAt } = visibleTimeWindow(input.issuedAt, input.expiresAt, MAX_ATTENDANCE_TTL_MS);
+    return {
+      ok: true,
+      token: {
+        schema: BLIND_TOKEN_SCHEMA,
+        kind: 'attendance',
+        attendanceClass,
+        eventCommitment: visibleHash(input.eventCommitment, 'eventCommitment'),
+        issuedAt,
+        expiresAt,
+        tokenNonce: visibleNonce(input.tokenNonce, 'tokenNonce'),
+        nullifier: visibleNonce(input.nullifier, 'nullifier')
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+function readBlindToken(input) {
+  const kind = safeText(input?.kind);
+  if (kind === 'capability') {
+    return readCapabilityToken(input);
+  }
+  if (kind === 'attendance') {
+    return readAttendanceToken(input);
+  }
+  return { ok: false, error: 'unsupported token kind' };
+}
+
+function prepareBlindMessage(token, modulusBytes) {
+  const checked = readBlindToken(token);
+  if (!checked.ok) {
+    throw new Error(checked.error);
+  }
+  const digest = crypto
+    .createHash('sha384')
+    .update(`GRTAP:${BLIND_TOKEN_SCHEMA}:${stableShape(checked.token)}`)
+    .digest();
+  const prefix = Buffer.from('GRTAP-BLIND-TOKEN-V1\0', 'utf8');
+  if (modulusBytes < prefix.length + digest.length + 2) {
+    throw new Error('modulus too small');
+  }
+  const prepared = Buffer.alloc(modulusBytes, 0);
+  prepared[0] = 0;
+  prepared[1] = 1;
+  prefix.copy(prepared, 2);
+  digest.copy(prepared, modulusBytes - digest.length);
+  return prepared;
+}
+
+function verifyBlindToken(token, blindSig, garden) {
+  const checked = readBlindToken(token);
+  if (!checked.ok) {
+    return checked;
+  }
+  let signature = null;
+  try {
+    signature = b64uToBuf(blindSig);
+  } catch {
+    return { ok: false, error: 'invalid blind signature' };
+  }
+  if (signature.length !== garden.modulusBytes) {
+    return { ok: false, error: 'unexpected blind signature size' };
+  }
+  let opened = null;
+  try {
+    opened = crypto.publicEncrypt(
+      {
+        key: garden.publicKeyPem,
+        padding: crypto.constants.RSA_NO_PADDING
+      },
+      signature
+    );
+  } catch {
+    return { ok: false, error: 'blind signature verification failed' };
+  }
+  const prepared = prepareBlindMessage(checked.token, garden.modulusBytes);
+  if (opened.length !== prepared.length || !crypto.timingSafeEqual(opened, prepared)) {
+    return { ok: false, error: 'blind signature does not match revealed token fields' };
+  }
+  return { ok: true, token: checked.token };
+}
+
+function askHash(ask, hashField, rawField, required = true) {
+  if (!ask || typeof ask !== 'object' || Array.isArray(ask)) {
+    throw new Error('ask envelope required');
+  }
+  if (ask[hashField]) {
+    return visibleHash(ask[hashField], hashField);
+  }
+  if (ask[rawField]) {
+    return softHash(ask[rawField]);
+  }
+  if (required) {
+    throw new Error(`${hashField} required`);
+  }
+  return '';
+}
+
+function fitsStrictCapabilityAsk(token, ask = {}) {
+  try {
+    if (!ask || typeof ask !== 'object' || Array.isArray(ask)) {
+      throw new Error('ask envelope required');
+    }
+    if (!ask.capability || token.capability !== safeText(ask.capability)) {
+      throw new Error('capability mismatch');
+    }
+    if (!ask.thresholdClass) {
+      throw new Error('thresholdClass required');
+    }
+    const needed = visibleThreshold(ask.thresholdClass);
+    if (thresholdRank(token.thresholdClass) < thresholdRank(needed)) {
+      throw new Error('threshold class mismatch');
+    }
+    if (token.relayScopeHash !== askHash(ask, 'relayScopeHash', 'relayScope')) {
+      throw new Error('relay scope mismatch');
+    }
+    if (token.actionScopeHash !== askHash(ask, 'actionScopeHash', 'actionScope')) {
+      throw new Error('action scope mismatch');
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+function fitsStrictAttendanceAsk(token, ask = {}) {
+  try {
+    if (!ask || typeof ask !== 'object' || Array.isArray(ask)) {
+      throw new Error('ask envelope required');
+    }
+    if (!ask.attendanceClass || token.attendanceClass !== safeText(ask.attendanceClass)) {
+      throw new Error('attendance class mismatch');
+    }
+    if (token.eventCommitment !== askHash(ask, 'eventCommitment', 'eventCommitmentRaw')) {
+      throw new Error('event commitment mismatch');
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
 function b64uToBuf(value) {
   const text = safeText(value);
   if (!/^[A-Za-z0-9_-]+$/.test(text)) {
@@ -170,7 +478,7 @@ function openCanopy(dataDir) {
 
   return {
     keyId,
-    suite: 'RSABSSA-SHA384-PSS-Randomized',
+    suite: BLIND_SUITE,
     publicKeyPem,
     publicJwk,
     modulusBytes,
@@ -182,8 +490,8 @@ function readBundle(input, garden) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return { ok: false, error: 'bundle must be an object' };
   }
-  const schema = safeText(input.schema, 'grtap.blind.issue.v1');
-  if (schema !== 'grtap.blind.issue.v1') {
+  const schema = safeText(input.schema, BLIND_ISSUE_SCHEMA);
+  if (schema !== BLIND_ISSUE_SCHEMA) {
     return { ok: false, error: 'unsupported bundle schema' };
   }
   if (safeText(input.keyId) !== garden.keyId) {
@@ -202,20 +510,9 @@ function readBundle(input, garden) {
     return { ok: false, error: 'unexpected blinded message size' };
   }
   const request = input.request && typeof input.request === 'object' ? input.request : {};
-  const capability = safeClass(request.capability, KNOWN_CAPABILITIES, 'crew_join');
-  const thresholdClass = safeThreshold(request.thresholdClass);
-  const relayScopeHash = safeText(request.relayScopeHash);
-  const actionScopeHash = safeText(request.actionScopeHash);
-  const requestNonce = safeText(request.requestNonce);
-  const expiresAt = Number(request.expiresAt || Date.now() + DEFAULT_LEAF_TTL_MS);
-  if (!relayScopeHash || relayScopeHash.length > 128) {
-    return { ok: false, error: 'relay scope hash required' };
-  }
-  if (actionScopeHash.length > 128 || requestNonce.length > 128) {
-    return { ok: false, error: 'request field too large' };
-  }
-  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-    return { ok: false, error: 'expiresAt must be in the future' };
+  const checkedToken = readBlindToken(request);
+  if (!checkedToken.ok) {
+    return checkedToken;
   }
   return {
     ok: true,
@@ -224,14 +521,7 @@ function readBundle(input, garden) {
       keyId: garden.keyId,
       suite: garden.suite,
       blinded,
-      request: {
-        capability,
-        thresholdClass,
-        relayScopeHash,
-        actionScopeHash,
-        requestNonce,
-        expiresAt
-      }
+      request: checkedToken.token
     }
   };
 }
@@ -326,16 +616,27 @@ function fitsLantern(glow, ask = {}) {
 module.exports = {
   KNOWN_CAPABILITIES,
   KNOWN_ATTENDANCE,
+  CAPABILITY_MIN_THRESHOLD,
+  CAPABILITY_TOKEN_FIELDS,
+  ATTENDANCE_TOKEN_FIELDS,
+  BLIND_TOKEN_SCHEMA,
+  BLIND_ISSUE_SCHEMA,
   THRESHOLD_ORDER,
   castShade,
   fitsBranch,
   fitsLantern,
+  fitsStrictAttendanceAsk,
+  fitsStrictCapabilityAsk,
   makeLantern,
   makeLeaf,
   openCanopy,
+  prepareBlindMessage,
   readBundle,
+  readBlindToken,
   readLantern,
   readLeaf,
+  thresholdRank,
+  verifyBlindToken,
   softHash,
   stoneKey
 };

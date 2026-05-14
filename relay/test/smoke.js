@@ -4,6 +4,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const {
+  prepareBlindMessage,
+  softHash,
+} = require('../src/canopy');
 
 const repoRelayDir = path.resolve(__dirname, '..');
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'groundwork-relay-'));
@@ -17,6 +21,8 @@ const child = spawn(process.execPath, ['src/server.js'], {
     PORT: String(port),
     DATA_DIR: dataDir,
     CANOPY_SECRET: 'test-canopy-secret-at-least-thirty-two-bytes',
+    CANOPY_MAX_ISSUABLE_THRESHOLD: 'keeper',
+    CANOPY_ALLOW_ATTENDANCE_CREDIT: '1',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -106,27 +112,65 @@ async function main() {
   assert.strictEqual(inbox.body.events.length, 1);
   assert.strictEqual(inbox.body.events[0].scope, 'private');
 
-  const leafResponse = await request('/v1/canopy/leaf', {
+  const legacyLeaf = await request('/v1/canopy/leaf', {
+    method: 'POST',
+    body: JSON.stringify({ capability: 'crew_join' }),
+  });
+  assert.strictEqual(legacyLeaf.response.status, 410);
+
+  const seed = await request('/v1/canopy/seed');
+  assert.strictEqual(seed.response.status, 200);
+  assert.strictEqual(seed.body.seed.schema, 'grtap.blind.seed.v1');
+  assert.ok(seed.body.seed.publicKeyPem.includes('BEGIN PUBLIC KEY'));
+
+  const capabilityToken = {
+    schema: 'grtap.blind.token.v1',
+    kind: 'capability',
+    capability: 'crew_join',
+    thresholdClass: 'contributor',
+    relayScopeHash: softHash('demo-private-relay'),
+    actionScopeHash: softHash('cleanup-run-42'),
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    tokenNonce: crypto.randomBytes(18).toString('base64url'),
+    nullifier: crypto.randomBytes(24).toString('base64url'),
+  };
+  const preparedCapability = prepareBlindMessage(capabilityToken, seed.body.seed.modulusBytes);
+  const shade = await request('/v1/canopy/shade', {
     method: 'POST',
     body: JSON.stringify({
-      capability: 'crew_join',
-      thresholdClass: 'contributor',
-      relayScope: 'demo-private-relay',
-      actionScope: 'cleanup-run-42',
+      schema: 'grtap.blind.issue.v1',
+      keyId: seed.body.seed.keyId,
+      suite: seed.body.seed.suite,
+      blindedMsg: preparedCapability.toString('base64url'),
+      request: capabilityToken,
     }),
   });
-  assert.strictEqual(leafResponse.response.status, 201);
-  assert.strictEqual(leafResponse.body.ok, true);
+  assert.strictEqual(shade.response.status, 201);
+  assert.strictEqual(shade.body.ok, true);
+  assert.strictEqual(typeof shade.body.shade.blindSig, 'string');
 
   const holdBody = {
-    leaf: leafResponse.body.leaf,
+    token: capabilityToken,
+    blindSig: shade.body.shade.blindSig,
     ask: {
       capability: 'crew_join',
-      thresholdClass: 'public',
-      relayScope: 'demo-private-relay',
-      actionScope: 'cleanup-run-42',
+      thresholdClass: 'contributor',
+      relayScopeHash: softHash('demo-private-relay'),
+      actionScopeHash: softHash('cleanup-run-42'),
     },
   };
+  const mismatchHold = await request('/v1/canopy/hold', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...holdBody,
+      ask: {
+        ...holdBody.ask,
+        actionScopeHash: softHash('other-action'),
+      },
+    }),
+  });
+  assert.strictEqual(mismatchHold.response.status, 400);
   const hold = await request('/v1/canopy/hold', {
     method: 'POST',
     body: JSON.stringify(holdBody),
@@ -139,21 +183,36 @@ async function main() {
   });
   assert.strictEqual(replayHold.response.status, 409);
 
+  const attendanceToken = {
+    schema: 'grtap.blind.token.v1',
+    kind: 'attendance',
+    attendanceClass: 'credit',
+    eventCommitment: softHash('event:cleanup-run-42'),
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    tokenNonce: crypto.randomBytes(18).toString('base64url'),
+    nullifier: crypto.randomBytes(24).toString('base64url'),
+  };
+  const preparedAttendance = prepareBlindMessage(attendanceToken, seed.body.seed.modulusBytes);
   const lanternResponse = await request('/v1/lantern/glow', {
     method: 'POST',
     body: JSON.stringify({
-      attendanceClass: 'credit',
-      eventCommitment: 'event:cleanup-run-42',
+      schema: 'grtap.blind.issue.v1',
+      keyId: seed.body.seed.keyId,
+      suite: seed.body.seed.suite,
+      blindedMsg: preparedAttendance.toString('base64url'),
+      request: attendanceToken,
     }),
   });
   assert.strictEqual(lanternResponse.response.status, 201);
   assert.strictEqual(lanternResponse.body.ok, true);
 
   const markBody = {
-    lantern: lanternResponse.body.lantern,
+    token: attendanceToken,
+    blindSig: lanternResponse.body.glow.blindSig,
     ask: {
       attendanceClass: 'credit',
-      eventCommitment: 'event:cleanup-run-42',
+      eventCommitment: softHash('event:cleanup-run-42'),
     },
   };
   const mark = await request('/v1/lantern/mark', {
@@ -168,40 +227,33 @@ async function main() {
   });
   assert.strictEqual(replayMark.response.status, 409);
 
-  const seed = await request('/v1/canopy/seed');
-  assert.strictEqual(seed.response.status, 200);
-  assert.strictEqual(seed.body.seed.schema, 'grtap.blind.seed.v1');
-  assert.ok(seed.body.seed.publicKeyPem.includes('BEGIN PUBLIC KEY'));
-
-  const preparedMsg = Buffer.alloc(seed.body.seed.modulusBytes);
-  crypto.randomFillSync(preparedMsg, 1);
-  const blindedMsg = crypto.publicEncrypt(
-    {
-      key: seed.body.seed.publicKeyPem,
-      padding: crypto.constants.RSA_NO_PADDING,
-    },
-    preparedMsg,
-  ).toString('base64url');
-  const shade = await request('/v1/canopy/shade', {
+  const safetySignal = await request('/v1/canopy/signal', {
     method: 'POST',
     body: JSON.stringify({
-      schema: 'grtap.blind.issue.v1',
-      keyId: seed.body.seed.keyId,
-      suite: seed.body.seed.suite,
-      blindedMsg,
-      request: {
-        capability: 'crew_join',
-        thresholdClass: 'contributor',
-        relayScopeHash: crypto.createHash('sha256').update('demo-private-relay').digest('hex'),
-        actionScopeHash: crypto.createHash('sha256').update('cleanup-run-42').digest('hex'),
-        requestNonce: crypto.randomBytes(12).toString('base64url'),
-        expiresAt: Date.now() + 60_000,
-      },
+      schema: 'grtap.safety.signal.v1',
+      tokenKind: 'capability',
+      nullifierHash: softHash(capabilityToken.nullifier),
+      signalClass: 'serious_safety_concern',
+      observedAtBucket: new Date().toISOString().slice(0, 10),
+      reportNonce: crypto.randomBytes(18).toString('base64url'),
     }),
   });
-  assert.strictEqual(shade.response.status, 201);
-  assert.strictEqual(shade.body.ok, true);
-  assert.strictEqual(typeof shade.body.shade.blindSig, 'string');
+  assert.strictEqual(safetySignal.response.status, 202);
+  assert.strictEqual(safetySignal.body.ok, true);
+
+  const detailedSignal = await request('/v1/canopy/signal', {
+    method: 'POST',
+    body: JSON.stringify({
+      schema: 'grtap.safety.signal.v1',
+      tokenKind: 'capability',
+      nullifierHash: softHash(capabilityToken.nullifier),
+      signalClass: 'serious_safety_concern',
+      observedAtBucket: new Date().toISOString().slice(0, 10),
+      reportNonce: crypto.randomBytes(18).toString('base64url'),
+      privateRelayName: 'should not be accepted',
+    }),
+  });
+  assert.strictEqual(detailedSignal.response.status, 400);
 }
 
 main()

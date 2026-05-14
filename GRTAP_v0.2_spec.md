@@ -97,6 +97,11 @@ in the public lane. If a post tells someone who is organizing, attending,
 invited, vouched for, unsafe, or privately coordinating, it belongs in the
 private or proof lane and must not be mirrored to Nostr.
 
+The Nostr adapter is downstream of the public lane only. It reads from the same
+filtered public event surface as `/v1/events`, signs only public event kinds,
+and must reject any event with `scope = private`, any non-empty recipient, any
+DM, and all GRTAP proof material.
+
 ---
 
 ## 2. Threat Model

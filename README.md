@@ -22,4 +22,5 @@ Upload the contents of this folder or the zip archive to your Pages project.
 - Public pins, confirmations, public events, jobs, and public planner requests go to `/v1/events`. These are open civic records and are eligible for future Nostr-compatible public mirroring.
 - Group pins and DMs are private posts. They are written through `/v1/events`, but read only from `/v1/inbox/:recipient`. They never appear in `/v1/events`, `/v1/stream`, `/v1/export.ndjson`, or any Nostr mirror.
 - GRTAP capability, attendance, and safety-proof requests are not posts. They use the `/v1/canopy/*` and `/v1/lantern/*` endpoints and store only the minimum replay/safety records.
+- The Nostr mirror adapter reads from `/v1/events` only, exposes signed public events at `/v1/nostr/events`, and publishes only when explicitly enabled.
 - Use only public or permissioned resource pins.

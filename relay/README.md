@@ -74,6 +74,11 @@ RELAY_NAME=Groundwork Relay OKC
 MAX_BODY_BYTES=262144
 MAX_EVENT_BODY_BYTES=131072
 CANOPY_SECRET=change-this-to-at-least-32-random-bytes-before-deploy
+NOSTR_MIRROR_ENABLED=0
+NOSTR_MIRROR_SECRET_KEY=
+NOSTR_MIRROR_RELAYS=wss://relay.damus.io,wss://nos.lol
+NOSTR_MIRROR_KIND=39701
+NOSTR_MIRROR_SOURCE_URL=https://relay.groundworkokc.org
 ```
 
 ## Event shape
@@ -176,6 +181,42 @@ Returns the public/private/proof lane rules clients should display and enforce.
 ```bash
 curl http://localhost:8787/v1/transport/policy
 ```
+
+### `GET /v1/nostr/policy`
+
+Returns the public-only Nostr mirror configuration. The private key is never
+returned.
+
+```bash
+curl http://localhost:8787/v1/nostr/policy
+```
+
+### `GET /v1/nostr/events`
+
+Returns signed Nostr events generated from the same public events returned by
+`/v1/events`. This endpoint refuses the private lane by construction: it forces
+`scope: "public"`, ignores `includePrivate`, and signs only public event kinds.
+
+```bash
+curl "http://localhost:8787/v1/nostr/events?kind=resource_pin&limit=50"
+```
+
+Returns `503` until `NOSTR_MIRROR_SECRET_KEY` is configured.
+
+### `POST /v1/nostr/publish`
+
+Publishes signed public mirror events to `NOSTR_MIRROR_RELAYS`. This endpoint is
+disabled unless `NOSTR_MIRROR_ENABLED=1`.
+
+```bash
+curl -X POST http://localhost:8787/v1/nostr/publish \
+  -H 'content-type: application/json' \
+  -d '{"kind":"resource_pin","limit":50}'
+```
+
+Private posts, recipient-scoped events, DMs, inbox contents, GRTAP capability
+tokens, attendance proofs, and safety signals are never signed or published by
+the Nostr adapter.
 
 ### `GET /v1/stream`
 

@@ -23,6 +23,12 @@ const {
   verifyBlindToken,
   stoneKey
 } = require('./canopy');
+const {
+  mirrorPolicyWithKey,
+  publishNostrEvents,
+  readNostrConfig,
+  signRelayEvents
+} = require('./nostr');
 
 const PORT = Number(process.env.PORT || 8787);
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -40,6 +46,7 @@ const ALLOW_ATTENDANCE_CREDIT = process.env.CANOPY_ALLOW_ATTENDANCE_CREDIT === '
 const ALLOW_ATTENDANCE_OCCURRENCE = process.env.CANOPY_ALLOW_ATTENDANCE_OCCURRENCE === '1';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const RELAY_NAME = process.env.RELAY_NAME || 'Groundwork Relay';
+const NOSTR_CONFIG = readNostrConfig(process.env);
 const PUBLIC_KINDS = new Set([
   'resource_pin',
   'resource_pin_confirmed',
@@ -470,6 +477,41 @@ function parseQuery(urlObj) {
   };
 }
 
+function parseMirrorPayload(payload = {}) {
+  const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const limit = Number(source.limit || 100);
+  return {
+    kind: source.kind ? String(source.kind) : '',
+    tile: source.tile ? String(source.tile) : '',
+    author: source.author ? String(source.author) : '',
+    recipient: '',
+    scope: 'public',
+    since: source.since ? Number(source.since) : 0,
+    until: source.until ? Number(source.until) : 0,
+    limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, 100) : 100,
+    includePrivate: false,
+    includeExpired: source.includeExpired === true
+  };
+}
+
+async function buildNostrMirrorPayload(query) {
+  if (!NOSTR_CONFIG.secretKey) {
+    return { ok: false, status: 503, error: 'Nostr mirror signing key is not configured' };
+  }
+  const publicQuery = { ...query, recipient: '', scope: 'public', includePrivate: false };
+  const limit = Number(publicQuery.limit || 100);
+  publicQuery.limit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 100) : 100;
+  const relayEvents = queryEvents(publicQuery);
+  const mirrored = await signRelayEvents(relayEvents, NOSTR_CONFIG, PUBLIC_KINDS);
+  return {
+    ok: true,
+    source: '/v1/events',
+    relayEvents: relayEvents.length,
+    events: mirrored.signed,
+    skipped: mirrored.skipped
+  };
+}
+
 function handleStream(req, res, query) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -542,7 +584,7 @@ loadEvents();
 loadStones();
 garden = openCanopy(DATA_DIR);
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   if (req.method === 'OPTIONS') {
@@ -557,6 +599,7 @@ const server = http.createServer((req, res) => {
       activeStreams: subscribers.size,
       supportedKinds: Array.from(ALLOWED_KINDS),
       postLanes: POST_LANES,
+      nostr: await mirrorPolicyWithKey(NOSTR_CONFIG, PUBLIC_KINDS),
       canopy: {
         active: true,
         stones: stones.size,
@@ -912,8 +955,55 @@ const server = http.createServer((req, res) => {
       ok: true,
       summary: 'Public posts go to the public relay log and may be mirrored with Nostr-compatible transport. Private posts go only to recipient inboxes. GRTAP proofs are not posts.',
       lanes: POST_LANES,
+      nostr: '/v1/nostr/policy',
       publicKinds: Array.from(PUBLIC_KINDS),
       privateKinds: ['dm', 'any supported kind with scope=private and recipient set']
+    });
+  }
+
+  if (req.method === 'GET' && urlObj.pathname === '/v1/nostr/policy') {
+    return json(res, 200, {
+      ok: true,
+      mirror: await mirrorPolicyWithKey(NOSTR_CONFIG, PUBLIC_KINDS)
+    });
+  }
+
+  if (req.method === 'GET' && urlObj.pathname === '/v1/nostr/events') {
+    const query = parseQuery(urlObj);
+    const mirrored = await buildNostrMirrorPayload(query);
+    if (!mirrored.ok) {
+      return json(res, mirrored.status, { ok: false, error: mirrored.error });
+    }
+    return json(res, 200, mirrored);
+  }
+
+  if (req.method === 'POST' && urlObj.pathname === '/v1/nostr/publish') {
+    if (!rateLimit(req, 10)) {
+      return json(res, 429, { ok: false, error: 'rate limited' });
+    }
+    if (!NOSTR_CONFIG.enabled) {
+      return json(res, 403, { ok: false, error: 'Nostr publishing disabled' });
+    }
+    if (!NOSTR_CONFIG.relays.length) {
+      return json(res, 503, { ok: false, error: 'Nostr mirror relays are not configured' });
+    }
+    return readJsonBody(req, res, async (payload) => {
+      try {
+        const mirrored = await buildNostrMirrorPayload(parseMirrorPayload(payload));
+        if (!mirrored.ok) {
+          return json(res, mirrored.status, { ok: false, error: mirrored.error });
+        }
+        const published = await publishNostrEvents(mirrored.events, NOSTR_CONFIG.relays);
+        return json(res, 202, {
+          ok: true,
+          source: mirrored.source,
+          relayEvents: mirrored.relayEvents,
+          published,
+          skipped: mirrored.skipped
+        });
+      } catch (err) {
+        return badRequest(res, err.message);
+      }
     });
   }
 
@@ -952,7 +1042,7 @@ const server = http.createServer((req, res) => {
     return text(
       res,
       200,
-      `${RELAY_NAME}\n\nEndpoints:\nGET  /health\nGET  /v1/transport/policy\nGET  /v1/events\nPOST /v1/events\nGET  /v1/inbox/:recipient\nGET  /v1/stream\nGET  /v1/export.ndjson\nGET  /v1/canopy/seed\nPOST /v1/canopy/shade\nPOST /v1/canopy/hold\nPOST /v1/canopy/signal\nPOST /v1/lantern/glow\nPOST /v1/lantern/mark\n`
+      `${RELAY_NAME}\n\nEndpoints:\nGET  /health\nGET  /v1/transport/policy\nGET  /v1/nostr/policy\nGET  /v1/nostr/events\nPOST /v1/nostr/publish\nGET  /v1/events\nPOST /v1/events\nGET  /v1/inbox/:recipient\nGET  /v1/stream\nGET  /v1/export.ndjson\nGET  /v1/canopy/seed\nPOST /v1/canopy/shade\nPOST /v1/canopy/hold\nPOST /v1/canopy/signal\nPOST /v1/lantern/glow\nPOST /v1/lantern/mark\n`
     );
   }
 

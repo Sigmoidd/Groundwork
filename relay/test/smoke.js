@@ -8,11 +8,16 @@ const {
   prepareBlindMessage,
   softHash,
 } = require('../src/canopy');
+const {
+  buildNostrTemplate,
+  readNostrConfig,
+} = require('../src/nostr');
 
 const repoRelayDir = path.resolve(__dirname, '..');
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'groundwork-relay-'));
 const port = 19_000 + Math.floor(Math.random() * 10_000);
 const baseUrl = `http://127.0.0.1:${port}`;
+const TEST_NOSTR_SECRET_KEY = `${'0'.repeat(63)}1`;
 
 const child = spawn(process.execPath, ['src/server.js'], {
   cwd: repoRelayDir,
@@ -23,6 +28,8 @@ const child = spawn(process.execPath, ['src/server.js'], {
     CANOPY_SECRET: 'test-canopy-secret-at-least-thirty-two-bytes',
     CANOPY_MAX_ISSUABLE_THRESHOLD: 'keeper',
     CANOPY_ALLOW_ATTENDANCE_CREDIT: '1',
+    NOSTR_MIRROR_SECRET_KEY: TEST_NOSTR_SECRET_KEY,
+    NOSTR_MIRROR_SOURCE_URL: baseUrl,
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -121,6 +128,14 @@ async function main() {
     tile: 'okc:sector:Midtown',
     body: { resource: 'shade', note: 'Crew-only staging note' },
   };
+  assert.throws(
+    () => buildNostrTemplate(
+      { ...privateGroupPin, id: softHash('private-group-pin') },
+      readNostrConfig({ NOSTR_MIRROR_SECRET_KEY: TEST_NOSTR_SECRET_KEY }),
+      new Set(['resource_pin'])
+    ),
+    /private relay events cannot be mirrored/
+  );
   const privatePinWrite = await request('/v1/events', {
     method: 'POST',
     body: JSON.stringify(privateGroupPin),
@@ -146,6 +161,38 @@ async function main() {
   assert.strictEqual(policy.response.status, 200);
   assert.strictEqual(policy.body.lanes.public.nostr, 'eligible for public Nostr-compatible mirroring');
   assert.strictEqual(policy.body.lanes.private.nostr, 'never mirrored to Nostr');
+
+  const nostrPolicy = await request('/v1/nostr/policy');
+  assert.strictEqual(nostrPolicy.response.status, 200);
+  assert.strictEqual(nostrPolicy.body.mirror.configured, true);
+  assert.strictEqual(nostrPolicy.body.mirror.enabled, false);
+  assert.match(nostrPolicy.body.mirror.publicKey, /^[a-f0-9]{64}$/);
+  assert.strictEqual(nostrPolicy.body.mirror.source, '/v1/events');
+
+  const nostrEvents = await request('/v1/nostr/events?limit=500');
+  assert.strictEqual(nostrEvents.response.status, 200);
+  assert.strictEqual(nostrEvents.body.source, '/v1/events');
+  assert.ok(Array.isArray(nostrEvents.body.events));
+  assert.strictEqual(nostrEvents.body.events.some(event => event.content.includes('Crew-only staging note')), false);
+
+  const mirroredPublic = nostrEvents.body.events.find(event => {
+    try {
+      return JSON.parse(event.content).source.relayEventId === publicWrite.body.stored[0].id;
+    } catch {
+      return false;
+    }
+  });
+  assert.ok(mirroredPublic);
+  assert.strictEqual(mirroredPublic.kind, 39701);
+  assert.ok(mirroredPublic.tags.some(tag => tag[0] === 'd' && tag[1] === `groundwork:${publicWrite.body.stored[0].id}`));
+  const { verifyEvent } = await import('nostr-tools/pure');
+  assert.strictEqual(verifyEvent(mirroredPublic), true);
+
+  const disabledPublish = await request('/v1/nostr/publish', {
+    method: 'POST',
+    body: JSON.stringify({ limit: 1 }),
+  });
+  assert.strictEqual(disabledPublish.response.status, 403);
 
   const legacyLeaf = await request('/v1/canopy/leaf', {
     method: 'POST',

@@ -23,6 +23,21 @@ The relay is intentionally small:
 The client keeps the working log locally first. The relay is just a mailbox and cache.
 It does not derive global truth, it does not need Postgres, and it does not need blockchain machinery.
 
+## Where posts go
+
+Groundwork uses open Nostr-compatible event transport for public and
+verifiable civic data, and GRTAP for anonymous capability and safety proofs.
+The relay keeps those lanes separate:
+
+| Lane | What belongs there | Write | Read | Nostr |
+| --- | --- | --- | --- | --- |
+| Public | Public resource pins, confirmations, public events, jobs, public planner requests | `POST /v1/events` with `scope: "public"` | `GET /v1/events`, `GET /v1/stream`, `GET /v1/export.ndjson` | Eligible for public mirroring |
+| Private | Group pins, DMs, private crew notes | `POST /v1/events` with `scope: "private"` and `recipient` | `GET /v1/inbox/:recipient` only | Never mirrored |
+| Proof | Capability tokens, attendance tokens, safety signals | `/v1/canopy/*`, `/v1/lantern/*` | Seed metadata only | Never mirrored |
+
+Plain rule: public posts are for the open map. Private posts are for a
+specific inbox. Proofs are not posts.
+
 ## Quick start
 
 ```bash
@@ -88,10 +103,13 @@ Every event is a single JSON object.
 
 Notes:
 
-- `dm` events should use `scope: "private"` and set `recipient`
-- `resource_pin`, `job_posted`, and `planting_request` are usually public
+- `dm` events always become `scope: "private"` and must set `recipient`
+- `resource_pin`, `job_posted`, and `planting_request` are public unless sent
+  with `scope: "private"` and a `recipient`
 - `id` can be omitted on write; the relay will compute it
 - `sig` is stored but not cryptographically verified yet
+- Private events are not returned from `/v1/events`, even if a caller passes
+  `includePrivate=true`
 
 ## API
 
@@ -113,7 +131,6 @@ Supported query params:
 - `since`
 - `until`
 - `limit`
-- `includePrivate=true`
 - `includeExpired=true`
 
 Example:
@@ -145,10 +162,19 @@ curl -X POST http://localhost:8787/v1/events \
 
 ### `GET /v1/inbox/:recipient`
 
-Pull private messages for one recipient.
+Pull private posts for one recipient. This is the only read path for DMs,
+group-scoped pins, and private crew notes.
 
 ```bash
 curl "http://localhost:8787/v1/inbox/cedar-fox-12?since=1778160000000"
+```
+
+### `GET /v1/transport/policy`
+
+Returns the public/private/proof lane rules clients should display and enforce.
+
+```bash
+curl http://localhost:8787/v1/transport/policy
 ```
 
 ### `GET /v1/stream`
@@ -164,6 +190,7 @@ curl -N "http://localhost:8787/v1/stream?kind=resource_pin&tile=okc:z15:35.472:-
 ### `GET /v1/export.ndjson`
 
 Exports matching events as newline-delimited JSON.
+Private posts are never included in this export.
 
 ## Canopy capability endpoints
 

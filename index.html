@@ -271,7 +271,7 @@
 <input name="placeName" type="hidden"/>
 <input name="address" type="hidden"/>
 <button class="button primary" type="submit">Post pin</button>
-<p class="help">Public pins go on the open map. Group-scoped pins stay private. Photos can fill GPS when available.</p>
+<p class="help">Public map posts go to the open relay and may be mirrored publicly later. Group posts go only to that group's private inbox. Photos can fill GPS when available.</p>
 <p class="help">After posting, pins created on this device can be edited or removed from their card.</p>
 </form>
 </aside>
@@ -536,7 +536,7 @@
 </form>
 <div class="callout">
 <strong>How groups work</strong>
-<p>Create a group to get a shareable group ID. Anyone with the ID can join and see group-scoped pins. Group pins are private on the relay — they never appear on the public map.</p>
+<p>Create a group to get a shareable group ID. Anyone with the ID can join and see group-scoped pins. Group pins read from the group inbox only; they never appear on the public map or public mirror.</p>
 </div>
 <form class="stack" id="joinGroupForm" novalidate="">
 <label>
@@ -639,7 +639,7 @@
               <textarea maxlength="280" name="body" placeholder="I can water those tree wells Thursday evening." required="" rows="4"></textarea>
 </label>
 <button class="button primary" type="submit">Queue message</button>
-<p class="help">This MVP stores messages locally and marks them relay-ready. Wire your community relay later without changing the UX.</p>
+<p class="help">Private messages go to the recipient inbox only. They do not appear on the public map, public stream, export feed, or public mirror.</p>
 </form>
 </section>
 <section class="panel">
@@ -686,7 +686,7 @@
 </div>
 <div class="callout">
 <strong>Current shape:</strong>
-<p>Cloudflare Pages serves the shell. The browser keeps the working log. Relays forward signed events and inbox messages. Group pins stay private on the relay.</p>
+<p>Cloudflare Pages serves the shell. Public posts sync through the public relay lane. Group pins and DMs sync through recipient inboxes only. GRTAP proofs stay on canopy and lantern endpoints.</p>
 </div>
 <pre class="code-block" id="eventShape"></pre>
 </section>

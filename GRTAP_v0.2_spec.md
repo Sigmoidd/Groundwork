@@ -37,6 +37,66 @@ has joined.
 - No portable shame. Negative safety labels, reason codes, risk scores, and
   behavioral profiles do not travel between relays.
 
+### 1.1 Public And Private Posting Lanes
+
+Groundwork uses open Nostr-compatible event transport for public/verifiable
+data, and GRTAP for anonymous capability and safety proofs.
+
+That creates three lanes:
+
+```
+Public lane
+  Goes to:
+    - the public Groundwork relay log
+    - public event streams
+    - public exports
+    - future Nostr-compatible public mirrors
+  Used for:
+    - public map pins
+    - public resource confirmations
+    - public events
+    - public jobs or stewardship requests
+    - public route/report facts
+  Must not contain:
+    - private relay membership
+    - attendance rosters
+    - organizing-party chat
+    - safety report reasons
+    - exact sensitive assembly locations before public disclosure
+
+Private lane
+  Goes to:
+    - one recipient inbox on a private or local relay
+  Used for:
+    - DMs
+    - group-scoped pins
+    - crew notes
+    - private event planning
+    - invite and vouch coordination
+  Must not go to:
+    - public event streams
+    - public exports
+    - Nostr mirrors
+
+Proof lane
+  Goes to:
+    - GRTAP canopy and lantern verification endpoints
+  Used for:
+    - capability proofs
+    - attendance proofs
+    - replay nullifiers
+    - narrow upward safety signals
+  Must not be treated as:
+    - a post
+    - a public identity
+    - a portable accusation
+```
+
+Plain rule: if a post helps the public map or public civic record, it can live
+in the public lane. If a post tells someone who is organizing, attending,
+invited, vouched for, unsafe, or privately coordinating, it belongs in the
+private or proof lane and must not be mirrored to Nostr.
+
 ---
 
 ## 2. Threat Model

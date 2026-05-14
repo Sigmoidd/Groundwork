@@ -1076,7 +1076,7 @@ async function pullEventsFromRelays() {
   for (const relayUrl of state.relays) {
     const queries = [
       `${cleanRelayUrl(relayUrl)}/v1/events?limit=500`,
-      ...state.groups.map(group => `${cleanRelayUrl(relayUrl)}/v1/events?limit=500&includePrivate=true&recipient=${encodeURIComponent(group.id)}`),
+      ...state.groups.map(group => `${cleanRelayUrl(relayUrl)}/v1/inbox/${encodeURIComponent(group.id)}?limit=500`),
       `${cleanRelayUrl(relayUrl)}/v1/inbox/${encodeURIComponent(state.identity.alias)}?limit=500`,
     ];
 
@@ -2781,6 +2781,11 @@ function renderEventShape() {
       'planner.requested',
       'dm.sent',
     ].join(' | '),
+    relayLane: {
+      public: 'read from /v1/events; eligible for public mirror',
+      private: 'read from /v1/inbox/:recipient only; never public mirrored',
+      proof: 'GRTAP canopy/lantern endpoints; not an app post',
+    },
     createdAt: 'ISO timestamp',
     payload: {
       resource: 'water | restroom | outlet | shade | tree | garden | fishing',

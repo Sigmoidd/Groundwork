@@ -112,6 +112,41 @@ async function main() {
   assert.strictEqual(inbox.body.events.length, 1);
   assert.strictEqual(inbox.body.events[0].scope, 'private');
 
+  const privateGroupPin = {
+    kind: 'resource_pin',
+    author: 'smoke-device',
+    createdAt: Date.now(),
+    scope: 'private',
+    recipient: 'crew-alpha',
+    tile: 'okc:sector:Midtown',
+    body: { resource: 'shade', note: 'Crew-only staging note' },
+  };
+  const privatePinWrite = await request('/v1/events', {
+    method: 'POST',
+    body: JSON.stringify(privateGroupPin),
+  });
+  assert.strictEqual(privatePinWrite.response.status, 202);
+  assert.strictEqual(privatePinWrite.body.stored[0].lane.lane, 'private');
+  assert.strictEqual(privatePinWrite.body.stored[0].lane.nostr, false);
+
+  const publicOnlyEvenWithFlag = await request('/v1/events?includePrivate=true&recipient=crew-alpha&limit=500');
+  assert.strictEqual(publicOnlyEvenWithFlag.response.status, 200);
+  assert.strictEqual(publicOnlyEvenWithFlag.body.events.some(event => event.id === privatePinWrite.body.stored[0].id), false);
+
+  const groupInbox = await request('/v1/inbox/crew-alpha?limit=500');
+  assert.strictEqual(groupInbox.response.status, 200);
+  assert.strictEqual(groupInbox.body.events.length, 1);
+  assert.strictEqual(groupInbox.body.events[0].kind, 'resource_pin');
+
+  const exportAttempt = await request('/v1/export.ndjson?includePrivate=true&limit=500');
+  assert.strictEqual(exportAttempt.response.status, 200);
+  assert.strictEqual(String(exportAttempt.body).includes('Crew-only staging note'), false);
+
+  const policy = await request('/v1/transport/policy');
+  assert.strictEqual(policy.response.status, 200);
+  assert.strictEqual(policy.body.lanes.public.nostr, 'eligible for public Nostr-compatible mirroring');
+  assert.strictEqual(policy.body.lanes.private.nostr, 'never mirrored to Nostr');
+
   const legacyLeaf = await request('/v1/canopy/leaf', {
     method: 'POST',
     body: JSON.stringify({ capability: 'crew_join' }),

@@ -61,6 +61,35 @@ const PUBLIC_KINDS = new Set([
   'event.pin.expired'
 ]);
 const ALLOWED_KINDS = new Set([...PUBLIC_KINDS, 'dm']);
+const POST_LANES = {
+  public: {
+    name: 'public',
+    writeEndpoint: 'POST /v1/events',
+    readEndpoint: 'GET /v1/events',
+    streamEndpoint: 'GET /v1/stream',
+    exportEndpoint: 'GET /v1/export.ndjson',
+    nostr: 'eligible for public Nostr-compatible mirroring',
+    rule: 'Public civic posts are visible to everyone and must contain no private organizing detail.'
+  },
+  private: {
+    name: 'private',
+    writeEndpoint: 'POST /v1/events',
+    readEndpoint: 'GET /v1/inbox/:recipient',
+    streamEndpoint: '',
+    exportEndpoint: '',
+    nostr: 'never mirrored to Nostr',
+    rule: 'Private posts require a recipient and are only returned from that recipient inbox.'
+  },
+  proof: {
+    name: 'proof',
+    writeEndpoint: 'POST /v1/canopy/* and POST /v1/lantern/*',
+    readEndpoint: 'GET /v1/canopy/seed',
+    streamEndpoint: '',
+    exportEndpoint: '',
+    nostr: 'never mirrored to Nostr',
+    rule: 'GRTAP proofs are not posts; relays store only minimal replay and safety records.'
+  }
+};
 const subscribers = new Set();
 const bus = new EventEmitter();
 const events = [];
@@ -179,6 +208,23 @@ function rateLimit(req, limit = 60, windowMs = 60_000) {
 function pickScope(kind, requested) {
   if (kind === 'dm') return 'private';
   return requested === 'private' ? 'private' : 'public';
+}
+
+function describePostLane(event) {
+  if (event.scope === 'private') {
+    return {
+      lane: 'private',
+      read: '/v1/inbox/:recipient',
+      recipient: event.recipient,
+      nostr: false
+    };
+  }
+  return {
+    lane: 'public',
+    read: '/v1/events',
+    recipient: '',
+    nostr: true
+  };
 }
 
 function validateEvent(input) {
@@ -419,7 +465,7 @@ function parseQuery(urlObj) {
     since: qs.get('since') ? Number(qs.get('since')) : 0,
     until: qs.get('until') ? Number(qs.get('until')) : 0,
     limit: Math.min(Number(qs.get('limit') || 100), 500),
-    includePrivate: qs.get('includePrivate') === 'true',
+    includePrivate: false,
     includeExpired: qs.get('includeExpired') === 'true'
   };
 }
@@ -445,7 +491,7 @@ function handleStream(req, res, query) {
 
   const handler = (event) => {
     const visible = eventVisibleForQuery(event, query);
-    const privateAllowed = query.includePrivate || event.scope !== 'private';
+    const privateAllowed = event.scope !== 'private';
     if (visible && privateAllowed) {
       res.write(`event: event\ndata: ${JSON.stringify(event)}\n\n`);
     }
@@ -510,6 +556,7 @@ const server = http.createServer((req, res) => {
       storedEvents: events.length,
       activeStreams: subscribers.size,
       supportedKinds: Array.from(ALLOWED_KINDS),
+      postLanes: POST_LANES,
       canopy: {
         active: true,
         stones: stones.size,
@@ -521,14 +568,15 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && urlObj.pathname === '/v1/events') {
     const query = parseQuery(urlObj);
+    query.includePrivate = false;
     return json(res, 200, { ok: true, events: queryEvents(query) });
   }
 
   if (req.method === 'GET' && urlObj.pathname.startsWith('/v1/inbox/')) {
     const recipient = decodeURIComponent(urlObj.pathname.replace('/v1/inbox/', ''));
     const query = parseQuery(urlObj);
-    query.kind = 'dm';
     query.recipient = recipient;
+    query.scope = 'private';
     query.includePrivate = true;
     return json(res, 200, { ok: true, events: queryEvents(query) });
   }
@@ -548,7 +596,7 @@ const server = http.createServer((req, res) => {
       since: urlObj.searchParams.get('since') ? Number(urlObj.searchParams.get('since')) : 0,
       until: urlObj.searchParams.get('until') ? Number(urlObj.searchParams.get('until')) : 0,
       limit: Math.min(Number(urlObj.searchParams.get('limit') || events.length), events.length || 1),
-      includePrivate: urlObj.searchParams.get('includePrivate') === 'true',
+      includePrivate: false,
       includeExpired: urlObj.searchParams.get('includeExpired') === 'true'
     }).reverse().map((event) => JSON.stringify(event)).join('\n') + '\n';
 
@@ -859,6 +907,16 @@ const server = http.createServer((req, res) => {
     });
   }
 
+  if (req.method === 'GET' && urlObj.pathname === '/v1/transport/policy') {
+    return json(res, 200, {
+      ok: true,
+      summary: 'Public posts go to the public relay log and may be mirrored with Nostr-compatible transport. Private posts go only to recipient inboxes. GRTAP proofs are not posts.',
+      lanes: POST_LANES,
+      publicKinds: Array.from(PUBLIC_KINDS),
+      privateKinds: ['dm', 'any supported kind with scope=private and recipient set']
+    });
+  }
+
   if (req.method === 'POST' && urlObj.pathname === '/v1/events') {
     if (!rateLimit(req)) {
       return json(res, 429, { ok: false, error: 'rate limited' });
@@ -878,7 +936,13 @@ const server = http.createServer((req, res) => {
           return badRequest(res, checked.error);
         }
         const result = appendEvent(checked.event);
-        stored.push({ id: result.event.id, duplicate: result.duplicate, stored: result.stored, event: result.event });
+        stored.push({
+          id: result.event.id,
+          duplicate: result.duplicate,
+          stored: result.stored,
+          lane: describePostLane(result.event),
+          event: result.event
+        });
       }
       return json(res, 202, { ok: true, stored });
     });
@@ -888,7 +952,7 @@ const server = http.createServer((req, res) => {
     return text(
       res,
       200,
-      `${RELAY_NAME}\n\nEndpoints:\nGET  /health\nGET  /v1/events\nPOST /v1/events\nGET  /v1/inbox/:recipient\nGET  /v1/stream\nGET  /v1/export.ndjson\nGET  /v1/canopy/seed\nPOST /v1/canopy/shade\nPOST /v1/canopy/hold\nPOST /v1/canopy/signal\nPOST /v1/lantern/glow\nPOST /v1/lantern/mark\n`
+      `${RELAY_NAME}\n\nEndpoints:\nGET  /health\nGET  /v1/transport/policy\nGET  /v1/events\nPOST /v1/events\nGET  /v1/inbox/:recipient\nGET  /v1/stream\nGET  /v1/export.ndjson\nGET  /v1/canopy/seed\nPOST /v1/canopy/shade\nPOST /v1/canopy/hold\nPOST /v1/canopy/signal\nPOST /v1/lantern/glow\nPOST /v1/lantern/mark\n`
     );
   }
 

@@ -82,6 +82,27 @@ const RESOURCE_ICONS = {
   business: '$',
 };
 
+const RESOURCE_LABELS = {
+  water: 'water',
+  restroom: 'restroom',
+  outlet: 'outlet',
+  shade: 'shade',
+  tree: 'fruit / tree',
+  garden: 'garden',
+  fishing: 'fishing spot',
+  bike_rack: 'bike rack',
+  trash_can: 'trash can',
+  business: 'place',
+};
+
+const CITY_DATA_AUTHOR = 'groundwork-okc-city-data';
+const RESOURCE_LIST_LIMIT = 80;
+const MAP_RESOURCE_LIMIT = 900;
+const ROUTE_RESOURCE_RADIUS_MILES = 0.25;
+const ROUTE_CORRIDOR_RADIUS_MILES = 0.18;
+const POI_RESOURCE_TYPES = new Set(['business', 'garden', 'fishing', 'shade', 'water', 'restroom', 'bike_rack', 'outlet', 'trash_can']);
+const NATURE_RESOURCE_TYPES = new Set(['shade', 'garden', 'fishing', 'water']);
+
 
 const NEIGHBORHOOD_MEDIA = {
   'Downtown': {
@@ -180,6 +201,8 @@ let markersLayer = null;
 let eventMarkersLayer = null;
 let osmBusinessLayer = null;
 let neighborhoodPolygonsLayer = null;
+let questRouteLayer = null;
+let cityPublicLayerGroup = null;
 let pendingLocation = null;
 let pendingMarker = null;
 let currentThread = null;
@@ -188,9 +211,15 @@ let activeTravelMode = 'scooter';
 let currentBrowseLocation = null;
 let mapPreviewOpen = false;
 let editingResourceId = null;
+let activeQuestRoute = null;
+let questArrivalWatchId = null;
+let homeBaseReminderWatchId = null;
 let osmBusinessQuests = [];
 let osmBusinessLoading = false;
 let osmBusinessCacheKey = '';
+let citySeedResources = [];
+let cityPublicLayers = null;
+let cityPublicLayersRendered = false;
 
 const routes = ['map', 'jobs', 'events', 'planner', 'groups', 'secure', 'inbox', 'relays', 'about'];
 const tabEls = Array.from(document.querySelectorAll('.tab'));
@@ -243,6 +272,7 @@ const featuredEventsPreview = document.getElementById('featuredEventsPreview');
 const civicBasicsStrip = document.getElementById('civicBasicsStrip');
 const mapPreviewToggle = document.getElementById('mapPreviewToggle');
 const mapPreviewSection = document.getElementById('mapPreviewSection');
+const questMissionPanel = document.getElementById('questMissionPanel');
 const inboxSummary = document.getElementById('inboxSummary');
 const eventShape = document.getElementById('eventShape');
 const contactAliases = document.getElementById('contactAliases');
@@ -263,7 +293,10 @@ const useLocationButton = document.getElementById('useLocationButton');
 const clearLocationButton = document.getElementById('clearLocationButton');
 const locationQueryInput = document.getElementById('locationQueryInput');
 const lookupLocationButton = document.getElementById('lookupLocationButton');
+const useTypedLocationLabelButton = document.getElementById('useTypedLocationLabelButton');
 const selectedLocationCard = document.getElementById('selectedLocationCard');
+const usePhotoLocationButton = document.getElementById('usePhotoLocationButton');
+const photoLocationTip = document.getElementById('photoLocationTip');
 const regenIdentityButton = document.getElementById('regenIdentityButton');
 const copyTrustPhraseButton = document.getElementById('copyTrustPhraseButton');
 const exportButton = document.getElementById('exportButton');
@@ -280,6 +313,7 @@ wireRouting();
 wireForms();
 initMap();
 render();
+loadCitySeedData();
 syncWithRelays();
 setInterval(syncWithRelays, 60_000);
 
@@ -398,6 +432,32 @@ function persist() {
   localStorage.setItem(ACTIVE_STORAGE_KEY, JSON.stringify(state));
 }
 
+async function loadCitySeedData() {
+  try {
+    const cacheKey = encodeURIComponent(getBuildCacheKey());
+    const [seedResponse, layerResponse] = await Promise.all([
+      fetch(`assets/okc-public-seeds.json?v=${cacheKey}`),
+      fetch(`assets/okc-public-layers.json?v=${cacheKey}`),
+    ]);
+
+    if (!seedResponse.ok) throw new Error(`Seed data failed: ${seedResponse.status}`);
+    if (!layerResponse.ok) throw new Error(`City layers failed: ${layerResponse.status}`);
+
+    const seedData = await seedResponse.json();
+    const layerData = await layerResponse.json();
+    citySeedResources = Array.isArray(seedData.records) ? seedData.records : [];
+    cityPublicLayers = Array.isArray(layerData.features) ? layerData : null;
+    cityPublicLayersRendered = false;
+    render();
+  } catch (error) {
+    console.warn('Could not load OKC public seed data.', error);
+  }
+}
+
+function getBuildCacheKey() {
+  return '2026-05-14-okc-city-data';
+}
+
 function wireRouting() {
   window.addEventListener('hashchange', syncRouteFromHash);
   syncRouteFromHash();
@@ -455,13 +515,16 @@ function wireForms() {
     resourcePreview.innerHTML = dataUrl ? `<img src="${escapeAttribute(dataUrl)}" alt="Resource preview">` : '';
     resourcePreview.classList.toggle('hidden', !dataUrl);
     resourcePreview.dataset.photo = dataUrl;
+    photoLocationTip?.classList.toggle('needs-location', Boolean(file && !pendingLocation));
 
     if (file) {
       const attached = await populateLocationFromPhotoExif(file);
       if (attached) {
+        photoLocationTip?.classList.remove('needs-location');
         toastMessage('Location attached from photo EXIF.');
       } else if (!pendingLocation && !String(locationQueryInput?.value || '').trim()) {
-        toastMessage('No GPS found in the photo. Search a place or use current location.');
+        photoLocationTip?.classList.add('needs-location');
+        toastMessage('No GPS found in the photo. Use current location or search a place.');
       }
     }
   });
@@ -518,7 +581,9 @@ function wireForms() {
   loadBeHeardEventsButton?.addEventListener('click', seedBeHeardEvents);
   focusUserButton?.addEventListener('click', focusUserLocation);
   useLocationButton?.addEventListener('click', applyCurrentLocationToForm);
+  usePhotoLocationButton?.addEventListener('click', applyCurrentLocationToForm);
   lookupLocationButton?.addEventListener('click', handleLookupLocation);
+  useTypedLocationLabelButton?.addEventListener('click', applyTypedLocationLabel);
   locationQueryInput?.addEventListener('keydown', event => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
@@ -558,6 +623,7 @@ function wireForms() {
   resourceList?.addEventListener('click', handleResourceCardClick);
   resourceList?.addEventListener('change', handleResourceCardChange);
   osmQuestList?.addEventListener('click', handleOsmQuestClick);
+  questMissionPanel?.addEventListener('click', handleQuestMissionClick);
 
   neighborhoodCarousel?.addEventListener('click', event => {
     const button = event.target.closest('[data-sector-focus]');
@@ -611,6 +677,7 @@ function wireForms() {
     activeIntent = button.dataset.intent || 'all';
     renderCityStage();
     renderIntentRows();
+    renderOsmBusinessQuests();
     renderTravelModeRows();
     renderTravelCostStrip();
     renderHomeBasePanel();
@@ -618,12 +685,16 @@ function wireForms() {
     renderFeaturedEventsPreview();
     renderCivicBasicsStrip();
     renderNeighborhoodExploreView();
+    renderMap();
   });
 
   travelModeRows?.addEventListener('click', event => {
     const button = event.target.closest('[data-travel-mode]');
     if (!button) return;
     activeTravelMode = button.dataset.travelMode || 'foot';
+    if (activeQuestRoute) {
+      activeQuestRoute.route = buildGroundworkQuestRoute(activeQuestRoute.origin, activeQuestRoute.destination);
+    }
     renderCityStage();
     renderTravelModeRows();
     renderTravelCostStrip();
@@ -664,6 +735,7 @@ function wireForms() {
     renderResources();
     renderMap();
     renderEvents();
+    renderQuestMissionPanel();
   });
 
   useBrowserLocationButton?.addEventListener('click', handleUseBrowserLocation);
@@ -738,6 +810,8 @@ function initMap() {
   eventMarkersLayer = L.layerGroup().addTo(map);
   osmBusinessLayer = L.layerGroup().addTo(map);
   neighborhoodPolygonsLayer = L.layerGroup().addTo(map);
+  questRouteLayer = L.layerGroup().addTo(map);
+  cityPublicLayerGroup = L.layerGroup().addTo(map);
 
   map.on('click', async event => {
     pendingLocation = {
@@ -783,6 +857,7 @@ function applyCurrentLocationToForm() {
     renderPendingMarker();
     if (map) map.setView([pendingLocation.lat, pendingLocation.lng], 15);
     await populateLocationDetailsFromCoords('Current location');
+    photoLocationTip?.classList.remove('needs-location');
     toastMessage('Current location attached.');
   }, () => toastMessage('Could not get your location.'), {
     enableHighAccuracy: true,
@@ -808,6 +883,8 @@ function clearPendingLocation() {
     selectedLocationCard.innerHTML = '';
     selectedLocationCard.classList.add('hidden');
   }
+
+  photoLocationTip?.classList.toggle('needs-location', Boolean(resourceForm?.photo?.files?.[0]));
 
   if (pendingMarker && map) {
     map.removeLayer(pendingMarker);
@@ -902,6 +979,28 @@ function renderSelectedLocationCard(placeName, address, subtitle) {
 
   selectedLocationCard.innerHTML = lines;
   selectedLocationCard.classList.remove('hidden');
+  photoLocationTip?.classList.remove('needs-location');
+}
+
+function applyTypedLocationLabel() {
+  const typedLabel = String(locationQueryInput?.value || '').trim();
+  if (!typedLabel) {
+    toastMessage('Type the correct place name first.');
+    return false;
+  }
+
+  if (!pendingLocation && (!resourceForm?.lat?.value || !resourceForm?.lng?.value)) {
+    toastMessage('Attach your location first, then correct the place name.');
+    return false;
+  }
+
+  const currentAddress = String(resourceForm?.address?.value || '').trim();
+  if (resourceForm) {
+    resourceForm.placeName.value = typedLabel;
+  }
+  renderSelectedLocationCard(typedLabel, currentAddress, 'Place name corrected');
+  toastMessage('Place name corrected.');
+  return true;
 }
 
 async function geocodePlaceQuery(query, sector) {
@@ -1186,7 +1285,14 @@ function cleanRelayUrl(url) {
 }
 
 function deriveResources() {
-  const resources = state.events
+  const seededResources = citySeedResources.map(resource => normalizeResourceRecord({
+    ...resource,
+    id: resource.id,
+    author: CITY_DATA_AUTHOR,
+    createdAt: resource.createdAt || '2026-05-14T00:00:00.000Z',
+  }));
+
+  const localResources = state.events
     .filter(event => event.kind === 'resource.pin.add')
     .map(event => normalizeResourceRecord({
       ...event.payload,
@@ -1196,6 +1302,7 @@ function deriveResources() {
     }))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
+  const resources = [...seededResources, ...localResources];
   const byId = new Map(resources.map(resource => [resource.id, resource]));
 
   state.events.forEach(event => {
@@ -1362,12 +1469,18 @@ function getFilteredResources() {
     .filter(item => {
       const itemScope = item.groupId ? item.groupId : 'public';
       const scopeOk = scopeValue === 'public' ? itemScope === 'public' : itemScope === scopeValue;
-      const typeOk = typeValue === 'all' || item.resource === typeValue;
+      const typeOk = resourceMatchesFilter(item, typeValue);
       const sectorOk = sectorValue === 'all' || item.sector === sectorValue;
       return scopeOk && typeOk && sectorOk;
     })
     .filter(passesTravelFilter)
     .sort((a, b) => getResourcePriorityScore(b) - getResourcePriorityScore(a));
+}
+
+function resourceMatchesFilter(item, typeValue) {
+  if (typeValue === 'all') return true;
+  if (typeValue === 'poi') return POI_RESOURCE_TYPES.has(item.resource);
+  return item.resource === typeValue;
 }
 
 function getResourcePriorityScore(item) {
@@ -1392,6 +1505,7 @@ function getResourcePriorityScore(item) {
 
 function renderResources() {
   const resources = getFilteredResources();
+  const visibleResources = resources.slice(0, RESOURCE_LIST_LIMIT);
   const totals = countBy(resources, item => item.resource);
   const verifiedCount = resources.filter(item => item.confirmations.length > 0).length;
 
@@ -1409,18 +1523,91 @@ function renderResources() {
     return;
   }
 
-  resourceList.innerHTML = resources.map(item => renderResourceCard(item)).join('');
-  decorateResourceCards(resources);
+  resourceList.innerHTML = [
+    ...visibleResources.map(item => renderResourceCard(item)),
+    resources.length > visibleResources.length
+      ? `<div class="empty">Showing ${visibleResources.length} of ${resources.length} pins. Use a neighborhood or resource filter to narrow the map.</div>`
+      : '',
+  ].join('');
+  decorateResourceCards(visibleResources);
 }
 
 function getVisibleOsmBusinessQuests() {
   const sectorValue = sectorFilter?.value || 'all';
   const typeValue = resourceFilter?.value || 'all';
-  return osmBusinessQuests
+  const osmQuests = osmBusinessQuests
     .filter(item => sectorValue === 'all' || item.sector === sectorValue)
-    .filter(item => typeValue === 'all' || typeValue === 'business')
+    .filter(item => typeValue === 'all' || typeValue === 'poi' || typeValue === 'business')
+    .filter(item => questMatchesActiveIntent(item))
     .filter(item => !isOsmQuestCleared(item))
-    .slice(0, 60);
+    .map(item => ({ ...item, questSource: item.questSource || 'openstreetmap' }));
+
+  const cityQuests = getCityNatureQuests()
+    .filter(item => sectorValue === 'all' || item.sector === sectorValue)
+    .filter(item => typeValue === 'all' || typeValue === 'poi' || resourceMatchesFilter(item, typeValue))
+    .filter(item => questMatchesActiveIntent(item))
+    .filter(item => !isOsmQuestCleared(item));
+
+  return [...cityQuests, ...osmQuests].slice(0, 60);
+}
+
+function questMatchesActiveIntent(item) {
+  if (activeIntent === 'all') return true;
+  return getQuestIntentIds(item).includes(activeIntent);
+}
+
+function getQuestIntentIds(item) {
+  if (item?.questSource === 'okc_city_nature') return ['nature'];
+  const kind = normalizePlaceName(item?.kind);
+  const category = normalizePlaceName(item?.category);
+  const tags = `${kind} ${category}`;
+  const intents = new Set();
+
+  if (/\b(park|garden|nature reserve|viewpoint|attraction|outdoor|trail)\b/.test(tags)) intents.add('nature');
+  if (/\b(museum|gallery|arts centre|theatre|cinema|bar|pub|restaurant|cafe|attraction|hotel)\b/.test(tags)) intents.add('entertainment');
+  if (/\b(library|community centre|cafe|restaurant|bar|pub|marketplace|place of worship|social facility|arts centre|museum|gallery)\b/.test(tags)) intents.add('interaction');
+  if (/\b(clinic|pharmacy|bank|office|craft|marketplace|library|community centre|social facility)\b/.test(tags)) intents.add('purpose');
+
+  if (!intents.size) intents.add('purpose');
+  return Array.from(intents);
+}
+
+function getActiveIntentTitle() {
+  return INTENT_OPTIONS.find(option => option.id === activeIntent)?.title || 'Everything';
+}
+
+function getCityNatureQuests() {
+  if (!citySeedResources.length) return [];
+  return citySeedResources
+    .filter(resource => NATURE_RESOURCE_TYPES.has(resource.resource))
+    .filter(resource => Number.isFinite(Number(resource.lat)) && Number.isFinite(Number(resource.lng)))
+    .map(resource => ({
+      id: `city-nature:${resource.id}`,
+      resourceId: resource.id,
+      questSource: 'okc_city_nature',
+      source: 'okc_public_data',
+      name: resource.placeName || resource.note || 'OKC nature stop',
+      kind: resource.resource,
+      category: 'city_nature',
+      kindLabel: RESOURCE_LABELS[resource.resource] || titleCase(resource.resource),
+      resource: resource.resource,
+      note: resource.note,
+      lat: Number(resource.lat),
+      lng: Number(resource.lng),
+      sector: resource.sector || nearestSector(resource.lat, resource.lng),
+      sourceLayer: resource.sourceLayer,
+      sourceObjectId: resource.sourceObjectId,
+    }))
+    .sort((a, b) => getNatureQuestPriority(b) - getNatureQuestPriority(a));
+}
+
+function getNatureQuestPriority(quest) {
+  const base = { water: 8, shade: 7, garden: 6, fishing: 5 }[quest.resource] || 3;
+  const reference = getReferencePoint();
+  const distanceBoost = reference
+    ? Math.max(0, 4 - distanceMiles(reference, quest))
+    : 0;
+  return base + distanceBoost;
 }
 
 function renderOsmBusinessQuests() {
@@ -1429,34 +1616,36 @@ function renderOsmBusinessQuests() {
   const focused = getFocusedSector();
 
   if (osmBusinessLoading) {
-    osmQuestStatus.textContent = 'Searching OpenStreetMap for foggy businesses nearby...';
+    osmQuestStatus.textContent = `Searching for ${getActiveIntentTitle().toLowerCase()} quests nearby...`;
     osmQuestList.innerHTML = '<div class="empty">Looking for nearby quests...</div>';
     return;
   }
 
-  if (!osmBusinessQuests.length) {
+  if (!osmBusinessQuests.length && !getCityNatureQuests().length) {
     osmQuestStatus.textContent = focused
-      ? `No OSM quests loaded for ${focused} yet.`
-      : 'No OSM quests loaded yet. Pick a neighborhood or use the map, then find quests.';
+      ? `No quests loaded for ${focused} yet.`
+      : 'City nature quests load automatically. Use Find quests for extra OpenStreetMap places.';
     osmQuestList.innerHTML = '';
     return;
   }
 
   osmQuestStatus.textContent = quests.length
-    ? `${quests.length} foggy OSM place${quests.length === 1 ? '' : 's'} ready to scout.`
-    : 'All loaded OSM places in this view already have matching Groundwork pins.';
+    ? `${quests.length} ${getActiveIntentTitle().toLowerCase()} quest${quests.length === 1 ? '' : 's'} ready to scout.`
+    : `No ${getActiveIntentTitle().toLowerCase()} quests in this view. Try another type, neighborhood, or Points of interest.`;
   osmQuestList.innerHTML = quests.map(renderOsmQuestCard).join('');
 }
 
 function renderOsmQuestCard(item) {
+  const eyebrow = item.questSource === 'okc_city_nature' ? 'CITY NATURE QUEST' : 'FOGGY QUEST';
+  const buttonLabel = item.questSource === 'okc_city_nature' ? 'Verify stop' : 'Scout spot';
   return `
     <article class="quest-card" data-osm-quest-id="${escapeAttribute(item.id)}">
       <div>
-        <p class="eyebrow">FOGGY QUEST</p>
+        <p class="eyebrow">${escapeHtml(eyebrow)}</p>
         <h3>${escapeHtml(item.name)}</h3>
-        <p>${escapeHtml(item.kindLabel)} in ${escapeHtml(item.sector)}</p>
+        <p>${escapeHtml(item.kindLabel)} in ${escapeHtml(item.sector)} · ${escapeHtml(getQuestIntentIds(item).map(titleCase).join(' / '))}</p>
       </div>
-      <button class="button small" type="button" data-osm-quest-action="scout" data-osm-quest-id="${escapeAttribute(item.id)}">Scout spot</button>
+      <button class="button small" type="button" data-osm-quest-action="scout" data-osm-quest-id="${escapeAttribute(item.id)}">${escapeHtml(buttonLabel)}</button>
     </article>
   `;
 }
@@ -1527,12 +1716,15 @@ async function fetchOsmBusinesses(bounds) {
       node["name"]["shop"](${bbox});
       way["name"]["shop"](${bbox});
       relation["name"]["shop"](${bbox});
-      node["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace"](${bbox});
-      way["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace"](${bbox});
-      relation["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace"](${bbox});
+      node["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace|community_centre|arts_centre|social_facility|place_of_worship"](${bbox});
+      way["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace|community_centre|arts_centre|social_facility|place_of_worship"](${bbox});
+      relation["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace|community_centre|arts_centre|social_facility|place_of_worship"](${bbox});
       node["name"]["tourism"~"museum|gallery|hotel|attraction"](${bbox});
       way["name"]["tourism"~"museum|gallery|hotel|attraction"](${bbox});
       relation["name"]["tourism"~"museum|gallery|hotel|attraction"](${bbox});
+      node["name"]["leisure"~"park|garden|nature_reserve"](${bbox});
+      way["name"]["leisure"~"park|garden|nature_reserve"](${bbox});
+      relation["name"]["leisure"~"park|garden|nature_reserve"](${bbox});
       node["name"]["craft"](${bbox});
       way["name"]["craft"](${bbox});
       relation["name"]["craft"](${bbox});
@@ -1559,13 +1751,21 @@ function normalizeOsmBusinessElement(element) {
   const lng = Number(element.lon ?? element.center?.lon);
   const name = String(tags.name || '').trim();
   if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  const kind = tags.shop || tags.amenity || tags.tourism || tags.craft || tags.office || 'business';
+  const category = tags.shop ? 'shop'
+    : tags.amenity ? 'amenity'
+      : tags.tourism ? 'tourism'
+        : tags.leisure ? 'leisure'
+          : tags.craft ? 'craft'
+            : tags.office ? 'office'
+              : 'business';
+  const kind = tags.shop || tags.amenity || tags.tourism || tags.leisure || tags.craft || tags.office || 'business';
   return {
     id: `${element.type}/${element.id}`,
     osmType: element.type,
     osmId: String(element.id),
     name,
     kind,
+    category,
     kindLabel: titleCase(kind.replace(/_/g, ' ')),
     lat: roundCoord(lat),
     lng: roundCoord(lng),
@@ -1577,6 +1777,18 @@ function normalizeOsmBusinessElement(element) {
 function isOsmQuestCleared(quest) {
   const resources = deriveResources();
   const questName = normalizePlaceName(quest.name);
+  const userVerified = resources.filter(resource => resource.author !== CITY_DATA_AUTHOR);
+
+  if (quest.questSource === 'okc_city_nature') {
+    return userVerified.some(resource => {
+      if (resource.cityQuestId && resource.cityQuestId === quest.resourceId) return true;
+      const resourceName = normalizePlaceName(resource.placeName || resource.note);
+      const [lat, lng] = resolveCoords(resource);
+      return (questName && resourceName && questName === resourceName)
+        || distanceMiles({ lat: quest.lat, lng: quest.lng }, { lat, lng }) < 0.035;
+    });
+  }
+
   return resources.some(resource => {
     if (resource.osmId && resource.osmId === quest.osmId) return true;
     const resourceName = normalizePlaceName(resource.placeName || resource.note);
@@ -1586,22 +1798,26 @@ function isOsmQuestCleared(quest) {
   });
 }
 
-function handleOsmQuestClick(event) {
+async function handleOsmQuestClick(event) {
   const button = event.target.closest('[data-osm-quest-action]');
   if (!button) return;
-  const quest = osmBusinessQuests.find(item => item.id === button.dataset.osmQuestId);
+  const quest = getVisibleOsmBusinessQuests().find(item => item.id === button.dataset.osmQuestId)
+    || osmBusinessQuests.find(item => item.id === button.dataset.osmQuestId);
   if (!quest) return;
-  startOsmBusinessQuest(quest);
+  await startOsmBusinessQuest(quest);
 }
 
-function startOsmBusinessQuest(quest) {
+async function startOsmBusinessQuest(quest) {
   if (!resourceForm) return;
   window.location.hash = 'map';
-  resourceForm.resource.value = 'business';
+  mapPreviewOpen = true;
+  renderMapPreview();
+  const isCityNatureQuest = quest.questSource === 'okc_city_nature';
+  resourceForm.resource.value = isCityNatureQuest ? quest.resource : 'business';
   resourceForm.scope.value = 'public';
   resourceForm.sector.value = quest.sector;
   resourceForm.access.value = 'public';
-  resourceForm.note.value = `Scout ${quest.name}`;
+  resourceForm.note.value = isCityNatureQuest ? `Verified ${quest.name}` : `Scout ${quest.name}`;
   resourceForm.locationQuery.value = quest.name;
   resourceForm.lat.value = quest.lat;
   resourceForm.lng.value = quest.lng;
@@ -1609,12 +1825,501 @@ function startOsmBusinessQuest(quest) {
   resourceForm.address.value = '';
   pendingLocation = { lat: quest.lat, lng: quest.lng };
   renderPendingMarker();
-  renderSelectedLocationCard(quest.name, `${quest.kindLabel} from OpenStreetMap`, 'Foggy quest selected');
-  resourceForm.dataset.osmId = quest.osmId;
-  resourceForm.dataset.osmType = quest.osmType;
-  resourceForm.dataset.osmSource = 'openstreetmap';
+  renderSelectedLocationCard(
+    quest.name,
+    isCityNatureQuest ? `${quest.kindLabel} from OKC city data` : `${quest.kindLabel} from OpenStreetMap`,
+    isCityNatureQuest ? 'City nature quest selected' : 'Foggy quest selected'
+  );
+  resourceForm.dataset.osmId = quest.osmId || '';
+  resourceForm.dataset.osmType = quest.osmType || '';
+  resourceForm.dataset.osmSource = quest.source || '';
+  resourceForm.dataset.cityQuestId = isCityNatureQuest ? quest.resourceId : '';
+  resourceForm.dataset.cityQuestSource = isCityNatureQuest ? 'okc_public_data' : '';
+  const hasRouteOrigin = await routeToQuest(quest);
+  mapPreviewSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  toastMessage(hasRouteOrigin ? 'Quest started. Route preview added on the map.' : 'Quest started. Set browser location or home base to route from where you are.');
+}
+
+async function routeToQuest(quest) {
+  activeQuestRoute = {
+    quest,
+    destination: {
+      lat: quest.lat,
+      lng: quest.lng,
+      label: quest.name,
+    },
+    origin: getReferencePoint(),
+    route: null,
+    arrived: false,
+    remindedToUpdate: false,
+    homeReminderArmed: false,
+    proof: null,
+    updated: false,
+  };
+
+  if (!activeQuestRoute.origin && navigator.geolocation) {
+    try {
+      const position = await getBrowserPosition();
+      const lat = roundCoord(position.coords.latitude);
+      const lng = roundCoord(position.coords.longitude);
+      activeQuestRoute.origin = { lat, lng, label: 'Current location' };
+      currentBrowseLocation = activeQuestRoute.origin;
+      renderHomeBasePanel();
+      renderTravelCostStrip();
+    } catch (error) {
+      console.warn(error);
+    }
+  }
+
+  activeQuestRoute.route = buildGroundworkQuestRoute(activeQuestRoute.origin, activeQuestRoute.destination);
+  renderActiveQuestRoute(true);
+  renderQuestMissionPanel();
+  beginQuestArrivalWatch();
+  return Boolean(activeQuestRoute.origin);
+}
+
+function buildGroundworkQuestRoute(origin, destination) {
+  const routingState = buildRouteState(origin, destination);
+  if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lng)) {
+    return {
+      label: 'Groundwork routing-standard route',
+      points: [[destination.lat, destination.lng]],
+      waypoints: [],
+      resources: [],
+      state: routingState,
+      notes: ['Custom route will start once browser location or home base is available.'],
+    };
+  }
+
+  const routeResources = getResourcesForRoute(origin, destination, {
+    mode: activeTravelMode,
+    radiusMiles: getRouteResourceRadiusMiles(),
+    corridorMiles: getRouteCorridorRadiusMiles(),
+  });
+
+  const resources = routeResources
+    .map(resource => ({
+      ...resource,
+      routeScore: scoreRouteWaypoint(resource, origin, destination),
+    }))
+    .filter(resource => resource.routeScore > 0)
+    .sort((a, b) => b.routeScore - a.routeScore)
+    .slice(0, activeTravelMode === 'car' ? 1 : 3);
+
+  const waypoints = resources
+    .sort((a, b) => distanceMiles(origin, a) - distanceMiles(origin, b));
+  const points = [
+    [origin.lat, origin.lng],
+    ...waypoints.map(point => [point.lat, point.lng]),
+    [destination.lat, destination.lng],
+  ];
+
+  const notes = [
+    activeTravelMode === 'foot' ? 'Walk route follows the Groundwork standard: useful amenities, shade, and heat-aware stops.' : '',
+    activeTravelMode === 'scooter' ? 'Bike / e-bike route follows the Groundwork standard: calmer facilities, useful amenities, and bike support.' : '',
+    activeTravelMode === 'car' ? 'Car route keeps POIs near origin or destination, not comfort-radius planning.' : '',
+    waypoints.length ? `Passes ${waypoints.map(item => RESOURCE_LABELS[item.resource] || item.resource).join(' and ')}.` : 'Direct route until custom router geometry is attached.',
+  ].filter(Boolean);
+
+  return {
+    label: 'Groundwork routing-standard route',
+    points,
+    waypoints,
+    resources: routeResources,
+    state: routingState,
+    notes,
+  };
+}
+
+function buildRouteState(origin, destination) {
+  return {
+    mode: activeTravelMode === 'scooter' ? 'ebike' : activeTravelMode === 'foot' ? 'walking' : 'car',
+    origin,
+    destination,
+    resource_radius_m: Math.round(getRouteResourceRadiusMiles() * 1609.344),
+    corridor_radius_m: Math.round(getRouteCorridorRadiusMiles() * 1609.344),
+    preferences: {
+      heat_aware: true,
+      public_visibility_only: true,
+      amenities: ['shade', 'water', 'restroom', 'bike_rack', 'outlet', 'garden', 'fishing'],
+      avoid_active_pedestrian_projects: true,
+      prefer_bike_routes: activeTravelMode === 'scooter',
+    },
+  };
+}
+
+function getRouteResourceRadiusMiles() {
+  if (activeTravelMode === 'car') return 0.75;
+  if (activeTravelMode === 'foot') return 0.18;
+  return ROUTE_RESOURCE_RADIUS_MILES;
+}
+
+function getRouteCorridorRadiusMiles() {
+  if (activeTravelMode === 'car') return 0.12;
+  if (activeTravelMode === 'foot') return 0.1;
+  return ROUTE_CORRIDOR_RADIUS_MILES;
+}
+
+function getResourcesForRoute(origin, destination, options = {}) {
+  const radiusMiles = Number(options.radiusMiles || ROUTE_RESOURCE_RADIUS_MILES);
+  const corridorMiles = Number(options.corridorMiles || ROUTE_CORRIDOR_RADIUS_MILES);
+  const usefulTypes = getRouteUsefulResourceTypes(options.mode || activeTravelMode);
+
+  return queryResourcesByRouteRadius(origin, destination, {
+    radiusMiles,
+    corridorMiles,
+    resources: deriveResources(),
+    predicate: resource => usefulTypes.has(resource.resource),
+  });
+}
+
+function getRouteUsefulResourceTypes(mode) {
+  if (mode === 'car') return new Set(['restroom', 'water', 'trash_can', 'business', 'garden', 'fishing']);
+  if (mode === 'foot') return new Set(['water', 'restroom', 'shade', 'garden', 'fishing']);
+  return new Set(['water', 'restroom', 'shade', 'bike_rack', 'outlet', 'garden', 'fishing']);
+}
+
+function queryResourcesByRouteRadius(origin, destination, options = {}) {
+  if (!origin || !destination) return [];
+  const radiusMiles = Number(options.radiusMiles || ROUTE_RESOURCE_RADIUS_MILES);
+  const corridorMiles = Number(options.corridorMiles || ROUTE_CORRIDOR_RADIUS_MILES);
+  const resources = Array.isArray(options.resources) ? options.resources : deriveResources();
+  const predicate = typeof options.predicate === 'function' ? options.predicate : () => true;
+
+  return resources
+    .map(resource => {
+      const [lat, lng] = resolveCoords(resource);
+      const point = { lat, lng };
+      return {
+        ...resource,
+        lat,
+        lng,
+        distanceFromOrigin: distanceMiles(origin, point),
+        distanceFromDestination: distanceMiles(destination, point),
+        corridorDistance: distanceToSegmentMiles(point, origin, destination),
+      };
+    })
+    .filter(resource => Number.isFinite(resource.lat) && Number.isFinite(resource.lng))
+    .filter(predicate)
+    .filter(resource =>
+      resource.distanceFromOrigin <= radiusMiles
+      || resource.distanceFromDestination <= radiusMiles
+      || resource.corridorDistance <= corridorMiles
+    )
+    .sort((a, b) =>
+      Math.min(a.distanceFromOrigin, a.distanceFromDestination, a.corridorDistance)
+      - Math.min(b.distanceFromOrigin, b.distanceFromDestination, b.corridorDistance)
+    );
+}
+
+function distanceToSegmentMiles(point, start, end) {
+  const meanLat = ((point.lat + start.lat + end.lat) / 3) * Math.PI / 180;
+  const milesPerLat = 69;
+  const milesPerLng = Math.cos(meanLat) * 69;
+  const px = point.lng * milesPerLng;
+  const py = point.lat * milesPerLat;
+  const sx = start.lng * milesPerLng;
+  const sy = start.lat * milesPerLat;
+  const ex = end.lng * milesPerLng;
+  const ey = end.lat * milesPerLat;
+  const dx = ex - sx;
+  const dy = ey - sy;
+  const lengthSq = (dx * dx) + (dy * dy);
+  if (!lengthSq) return distanceMiles(point, start);
+  const t = Math.max(0, Math.min(1, (((px - sx) * dx) + ((py - sy) * dy)) / lengthSq));
+  const cx = sx + (t * dx);
+  const cy = sy + (t * dy);
+  return Math.sqrt(((px - cx) ** 2) + ((py - cy) ** 2));
+}
+
+function scoreRouteWaypoint(resource, origin, destination) {
+  const total = distanceMiles(origin, destination);
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  const originToStop = distanceMiles(origin, resource);
+  const stopToDestination = distanceMiles(resource, destination);
+  const detour = (originToStop + stopToDestination) - total;
+  const maxDetour = activeTravelMode === 'foot' ? 0.25 : activeTravelMode === 'scooter' ? 0.6 : 1.2;
+  if (detour < -0.05 || detour > maxDetour) return 0;
+  const utility = { water: 6, shade: 5, restroom: 5, bike_rack: 5, outlet: 4, garden: 4, fishing: 3, trash_can: 2, business: 1 }[resource.resource] || 1;
+  const destinationBoost = resource.distanceFromDestination != null ? Math.max(0, 1.5 - resource.distanceFromDestination) : 0;
+  return utility + destinationBoost + Math.max(0, maxDetour - detour);
+}
+
+function renderActiveQuestRoute(fitRoute = false) {
+  if (!map || !activeQuestRoute) return;
+  questRouteLayer?.clearLayers();
+
+  const destination = activeQuestRoute.destination;
+  const origin = activeQuestRoute.origin;
+  const route = activeQuestRoute.route || buildGroundworkQuestRoute(origin, destination);
+  const points = route.points || [];
+
+  if (origin && Number.isFinite(origin.lat) && Number.isFinite(origin.lng)) {
+    L.circleMarker([origin.lat, origin.lng], {
+      radius: 6,
+      color: '#64a8dc',
+      weight: 2,
+      fillColor: '#64a8dc',
+      fillOpacity: 0.24,
+    }).addTo(questRouteLayer || markersLayer).bindPopup(`<strong>${escapeHtml(origin.label || 'Start')}</strong>`);
+  }
+
+  (route.waypoints || []).forEach(waypoint => {
+    L.circleMarker([waypoint.lat, waypoint.lng], {
+      radius: 5,
+      color: '#75c47b',
+      weight: 2,
+      fillColor: '#75c47b',
+      fillOpacity: 0.24,
+    }).addTo(questRouteLayer || markersLayer).bindPopup(`<strong>${escapeHtml(waypoint.note || RESOURCE_LABELS[waypoint.resource] || 'Route stop')}</strong>`);
+  });
+
+  if (points.length > 1) {
+    L.polyline(points, {
+      color: '#d5b14a',
+      weight: 4,
+      opacity: 0.86,
+      dashArray: activeTravelMode === 'foot' ? '6 8' : '',
+    }).addTo(questRouteLayer || markersLayer);
+  }
+
+  L.circleMarker([destination.lat, destination.lng], {
+    radius: 10,
+    color: '#d5b14a',
+    weight: 2,
+    fillColor: '#d5b14a',
+    fillOpacity: 0.28,
+  }).addTo(questRouteLayer || markersLayer).bindPopup(`<strong>Quest: ${escapeHtml(destination.label || 'Selected quest')}</strong>`);
+
+  if (!fitRoute) return;
+  if (points.length > 1) {
+    map.fitBounds(points, { padding: [44, 44], maxZoom: 15 });
+  } else {
+    map.setView([destination.lat, destination.lng], 16);
+  }
+}
+
+function renderQuestMissionPanel() {
+  if (!questMissionPanel) return;
+  if (!activeQuestRoute) {
+    questMissionPanel.classList.add('hidden');
+    questMissionPanel.innerHTML = '';
+    return;
+  }
+
+  const route = activeQuestRoute.route || buildGroundworkQuestRoute(activeQuestRoute.origin, activeQuestRoute.destination);
+  const origin = activeQuestRoute.origin;
+  const destination = activeQuestRoute.destination;
+  const distance = origin ? distanceMiles(origin, destination) : null;
+  const proofReady = Boolean(activeQuestRoute.proof);
+  const arrived = Boolean(activeQuestRoute.arrived);
+  const routeResourceCount = route.resources?.length || 0;
+  const routeRadius = route.state?.resource_radius_m ? Math.round(route.state.resource_radius_m / 16.09344) / 100 : null;
+  const status = proofReady
+    ? 'GRTAP attendance proof ready'
+    : arrived
+      ? 'Arrived. Generate proof before updating.'
+      : 'Route started. Stay in Groundwork.';
+
+  questMissionPanel.innerHTML = `
+    <div class="quest-mission-head">
+      <div>
+        <p class="eyebrow">GROUNDWORK ROUTE</p>
+        <h3>${escapeHtml(destination.label || 'Quest')}</h3>
+        <p>${escapeHtml(status)}</p>
+      </div>
+      <span class="quest-route-chip">${escapeHtml(activeTravelMode === 'scooter' ? 'Bike / e-bike' : titleCase(activeTravelMode))}</span>
+    </div>
+    <div class="quest-route-meta">
+      <span>${distance == null ? 'Origin needed' : `${distance.toFixed(1)} mi direct`}</span>
+      <span>${escapeHtml(route.label)}</span>
+      <span>${routeRadius == null ? 'Radius pending' : `${routeResourceCount} useful stops within ${routeRadius} mi`}</span>
+      <span>${escapeHtml(activeQuestRoute.homeReminderArmed ? 'Home reminder armed' : 'Home reminder off')}</span>
+    </div>
+    ${route.notes?.length ? `<div class="quest-route-notes">${route.notes.map(note => `<span>${escapeHtml(note)}</span>`).join('')}</div>` : ''}
+    <div class="quest-mission-actions">
+      <button class="button small" type="button" data-quest-mission-action="check-arrival">Check arrival</button>
+      <button class="button small primary" type="button" data-quest-mission-action="grtap-proof">${proofReady ? 'Proof ready' : 'Use GRTAP proof'}</button>
+      <button class="button small" type="button" data-quest-mission-action="update-pin">Update pin before leaving</button>
+      <button class="button small" type="button" data-quest-mission-action="home-reminder">Remind at home base</button>
+    </div>
+  `;
+  questMissionPanel.classList.remove('hidden');
+}
+
+async function handleQuestMissionClick(event) {
+  const button = event.target.closest('[data-quest-mission-action]');
+  if (!button || !activeQuestRoute) return;
+  const action = button.dataset.questMissionAction;
+  if (action === 'check-arrival') {
+    await checkQuestArrivalNow();
+  } else if (action === 'grtap-proof') {
+    await generateQuestAttendanceProof();
+  } else if (action === 'update-pin') {
+    prepareQuestPinUpdate();
+  } else if (action === 'home-reminder') {
+    armHomeBaseReminder();
+  }
+}
+
+async function checkQuestArrivalNow() {
+  if (!navigator.geolocation) {
+    toastMessage('Browser location unavailable for arrival check.');
+    return;
+  }
+  try {
+    const position = await getBrowserPosition();
+    handleQuestPosition(position);
+  } catch (error) {
+    console.warn(error);
+    toastMessage('Could not check arrival right now.');
+  }
+}
+
+function beginQuestArrivalWatch() {
+  if (!navigator.geolocation || !activeQuestRoute) return;
+  if (questArrivalWatchId != null) navigator.geolocation.clearWatch(questArrivalWatchId);
+  questArrivalWatchId = navigator.geolocation.watchPosition(handleQuestPosition, error => console.warn(error), {
+    enableHighAccuracy: true,
+    timeout: 10000,
+    maximumAge: 5000,
+  });
+}
+
+function handleQuestPosition(position) {
+  if (!activeQuestRoute) return;
+  const current = {
+    lat: roundCoord(position.coords.latitude),
+    lng: roundCoord(position.coords.longitude),
+    label: 'Current location',
+  };
+  currentBrowseLocation = current;
+  activeQuestRoute.origin = current;
+  activeQuestRoute.route = buildGroundworkQuestRoute(current, activeQuestRoute.destination);
+  const distanceToQuest = distanceMiles(current, activeQuestRoute.destination);
+
+  if (distanceToQuest <= 0.08 && !activeQuestRoute.arrived) {
+    activeQuestRoute.arrived = true;
+    notifyInBrowser('Arrived at quest', 'Use GRTAP proof, then update the pin before leaving.');
+  }
+
+  if (activeQuestRoute.arrived && !activeQuestRoute.updated && !activeQuestRoute.remindedToUpdate && distanceToQuest > 0.18) {
+    activeQuestRoute.remindedToUpdate = true;
+    notifyInBrowser('Update this pin', 'Before you leave the area, add the current conditions for the next person.');
+  }
+
+  const homeBase = state.preferences?.homeBase;
+  if (activeQuestRoute.homeReminderArmed && homeBase) {
+    const distanceToHome = distanceMiles(current, homeBase);
+    if (distanceToHome <= 0.1) {
+      activeQuestRoute.homeReminderArmed = false;
+      if (homeBaseReminderWatchId != null) {
+        navigator.geolocation.clearWatch(homeBaseReminderWatchId);
+        homeBaseReminderWatchId = null;
+      }
+      notifyInBrowser('Back at home base', 'Finish the quest update while it is fresh.');
+    }
+  }
+
+  renderActiveQuestRoute(false);
+  renderQuestMissionPanel();
+  renderHomeBasePanel();
+  renderTravelCostStrip();
+}
+
+async function generateQuestAttendanceProof() {
+  if (!activeQuestRoute) return;
+  if (!activeQuestRoute.arrived) {
+    await checkQuestArrivalNow();
+    if (!activeQuestRoute.arrived) {
+      toastMessage('Get closer to the quest before generating attendance proof.');
+      return;
+    }
+  }
+
+  const proof = await createLocalGrtapAttendanceProof(activeQuestRoute.quest || activeQuestRoute.destination);
+  activeQuestRoute.proof = proof;
+  if (resourceForm) {
+    resourceForm.dataset.grtapAttendance = 'credit-presented';
+    resourceForm.dataset.grtapProofLocalId = proof.localId;
+  }
+  renderQuestMissionPanel();
+  toastMessage('GRTAP attendance proof ready for this pin update.');
+}
+
+async function createLocalGrtapAttendanceProof(quest) {
+  const claimScope = `${quest.osmType || quest.questSource || 'quest'}:${quest.osmId || quest.resourceId || quest.label || quest.name}:${new Date().toISOString().slice(0, 10)}`;
+  const nonce = crypto.randomUUID();
+  const digest = await digestText(`${state.identity.deviceId}:${claimScope}:${nonce}`);
+  return {
+    protocol: 'GRTAP',
+    attendanceClass: 'credit',
+    localId: digest.slice(0, 16),
+    nullifierPreview: digest.slice(16, 28),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+async function digestText(value) {
+  if (!crypto.subtle) return btoa(value).replace(/[^a-z0-9]/gi, '').slice(0, 64).toLowerCase();
+  const encoded = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(hash)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function prepareQuestPinUpdate() {
+  if (!activeQuestRoute || !resourceForm) return;
+  if (!activeQuestRoute.proof) {
+    toastMessage('Use GRTAP proof before updating this quest pin.');
+    return;
+  }
+  activeQuestRoute.updated = true;
+  resourceForm.dataset.grtapAttendance = 'credit-presented';
+  resourceForm.note.value = resourceForm.note.value && !/^Scout\s/.test(resourceForm.note.value)
+    ? resourceForm.note.value
+    : `Verified ${activeQuestRoute.destination.label}`;
   resourceForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  toastMessage('Quest started. Add a photo or note to clear this spot.');
+  renderQuestMissionPanel();
+  toastMessage('Pin update unlocked. Add current conditions before leaving.');
+}
+
+function armHomeBaseReminder() {
+  if (!activeQuestRoute) return;
+  if (!state.preferences?.homeBase) {
+    toastMessage('Set a home base first, then arm the reminder.');
+    return;
+  }
+  activeQuestRoute.homeReminderArmed = true;
+  if (navigator.geolocation && homeBaseReminderWatchId == null) {
+    homeBaseReminderWatchId = navigator.geolocation.watchPosition(handleQuestPosition, error => console.warn(error), {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 5000,
+    });
+  }
+  renderQuestMissionPanel();
+  toastMessage('Home base reminder armed in this browser.');
+}
+
+function notifyInBrowser(title, body) {
+  toastMessage(`${title}: ${body}`);
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    new Notification(title, { body });
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then(permission => {
+      if (permission === 'granted') new Notification(title, { body });
+    });
+  }
+}
+
+function getBrowserPosition() {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 7000,
+    });
+  });
 }
 
 function renderMap() {
@@ -1624,20 +2329,24 @@ function renderMap() {
   eventMarkersLayer.clearLayers();
   osmBusinessLayer?.clearLayers();
   neighborhoodPolygonsLayer?.clearLayers();
+  questRouteLayer?.clearLayers();
 
   const resources = getFilteredResources();
   const events = getRenderableEvents();
   const quests = getVisibleOsmBusinessQuests();
+  const mapResources = resources.slice(0, MAP_RESOURCE_LIMIT);
   const bounds = [];
 
   renderNeighborhoodPolygons();
+  renderCityPublicLayers();
 
-  if (!resources.length && !events.length && !quests.length) {
+  if (!mapResources.length && !events.length && !quests.length) {
+    renderActiveQuestRoute(false);
     renderPendingMarker();
     return;
   }
 
-  resources.forEach(item => {
+  mapResources.forEach(item => {
     const [lat, lng] = resolveCoords(item);
     bounds.push([lat, lng]);
 
@@ -1693,7 +2402,82 @@ function renderMap() {
     map.fitBounds(bounds, { padding: [30, 30] });
   }
 
+  renderActiveQuestRoute(false);
   renderPendingMarker();
+}
+
+function renderCityPublicLayers() {
+  if (!map || !cityPublicLayerGroup || !cityPublicLayers || cityPublicLayersRendered) return;
+
+  cityPublicLayerGroup.clearLayers();
+  L.geoJSON(cityPublicLayers, {
+    style: getCityLayerStyle,
+    onEachFeature: bindCityLayerFeature,
+  }).addTo(cityPublicLayerGroup);
+
+  cityPublicLayerGroup.eachLayer(layer => {
+    if (typeof layer.bringToBack === 'function') layer.bringToBack();
+    if (typeof layer.eachLayer === 'function') {
+      layer.eachLayer(child => {
+        if (typeof child.bringToBack === 'function') child.bringToBack();
+      });
+    }
+  });
+  cityPublicLayersRendered = true;
+}
+
+function getCityLayerStyle(feature) {
+  const layer = feature?.properties?.layer || '';
+  const zScore = Number(feature?.properties?.zScore);
+
+  if (layer === 'hvi_2020') {
+    const hot = Number.isFinite(zScore) && zScore > 0;
+    const veryHot = Number.isFinite(zScore) && zScore >= 1;
+    return {
+      color: veryHot ? '#e37b7b' : hot ? '#f28f3b' : '#64a8dc',
+      weight: 1,
+      opacity: 0.42,
+      fillColor: veryHot ? '#e37b7b' : hot ? '#f28f3b' : '#64a8dc',
+      fillOpacity: veryHot ? 0.16 : 0.09,
+    };
+  }
+
+  if (layer === 'parks' || layer === 'riparian_areas') {
+    return { color: '#75c47b', weight: 1.2, opacity: 0.44, fillColor: '#75c47b', fillOpacity: 0.08 };
+  }
+
+  if (layer === 'lakes' || layer === 'streams') {
+    return { color: '#64a8dc', weight: layer === 'streams' ? 1 : 1.2, opacity: 0.38, fillColor: '#64a8dc', fillOpacity: 0.08 };
+  }
+
+  if (layer === 'bike_routes' || layer === 'bike_projects') {
+    return { color: '#f4d35e', weight: layer === 'bike_routes' ? 2.4 : 1.8, opacity: 0.72, dashArray: layer === 'bike_projects' ? '5 7' : null };
+  }
+
+  if (layer === 'active_pedestrian_projects' || layer === 'trails') {
+    return { color: layer === 'trails' ? '#8bd3dd' : '#d779c6', weight: layer === 'trails' ? 2.6 : 1.8, opacity: 0.72, dashArray: layer === 'active_pedestrian_projects' ? '4 6' : null };
+  }
+
+  if (layer === 'city_boundaries') {
+    return { color: '#f8efe0', weight: 1.8, opacity: 0.58, fillOpacity: 0 };
+  }
+
+  return { color: '#cfc6b8', weight: 1, opacity: 0.22, fillColor: '#cfc6b8', fillOpacity: 0.035 };
+}
+
+function bindCityLayerFeature(feature, layer) {
+  const props = feature.properties || {};
+  const details = [
+    props.type,
+    props.status,
+    Number.isFinite(Number(props.zScore)) ? `HVI z-score ${Number(props.zScore).toFixed(2)}` : '',
+  ].filter(Boolean).join(' - ');
+
+  layer.bindPopup(
+    `<strong>${escapeHtml(props.name || props.layerLabel || 'OKC public layer')}</strong><br>` +
+    `${escapeHtml(props.layerLabel || 'OKC public data')}` +
+    `${details ? `<br><small>${escapeHtml(details)}</small>` : ''}`
+  );
 }
 
 
@@ -2828,6 +3612,8 @@ async function handleResourceSubmit(event) {
   let placeName = String(fd.get('placeName') || '').trim();
   let address = String(fd.get('address') || '').trim();
   const rawLocationQuery = String(fd.get('locationQuery') || '').trim();
+  const normalizedTypedLocation = normalizePlaceName(rawLocationQuery);
+  const normalizedAttachedPlace = normalizePlaceName(placeName);
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     if (rawLocationQuery) {
@@ -2860,6 +3646,16 @@ async function handleResourceSubmit(event) {
       lng = Number(resourceForm.lng.value);
       placeName = String(resourceForm.placeName.value || placeName).trim();
       address = String(resourceForm.address.value || address).trim();
+    }
+  }
+
+  if (Number.isFinite(lat) && Number.isFinite(lng) && rawLocationQuery) {
+    const typedLooksDifferent = normalizedTypedLocation && normalizedTypedLocation !== normalizedAttachedPlace;
+    const queryIsNotJustAddress = normalizePlaceName(address) !== normalizedTypedLocation;
+    if (!placeName || (typedLooksDifferent && queryIsNotJustAddress)) {
+      placeName = rawLocationQuery;
+      if (resourceForm) resourceForm.placeName.value = placeName;
+      renderSelectedLocationCard(placeName, address, 'Place name corrected');
     }
   }
 
@@ -2896,7 +3692,10 @@ async function handleResourceSubmit(event) {
     source: resourceForm?.dataset.osmSource || '',
     osmId: resourceForm?.dataset.osmId || '',
     osmType: resourceForm?.dataset.osmType || '',
-    questStatus: resourceForm?.dataset.osmId ? 'scouted' : '',
+    cityQuestId: resourceForm?.dataset.cityQuestId || '',
+    cityQuestSource: resourceForm?.dataset.cityQuestSource || '',
+    questStatus: resourceForm?.dataset.osmId || resourceForm?.dataset.cityQuestId ? 'scouted' : '',
+    attendanceProof: resourceForm?.dataset.grtapAttendance ? 'grtap-credit-presented' : '',
     accessibility: {
       adaStatus: String(fd.get('adaStatus') || 'unknown'),
       wheelchairAccess: String(fd.get('wheelchairAccess') || 'unknown'),
@@ -2917,13 +3716,23 @@ async function handleResourceSubmit(event) {
     appendEvent('resource.pin.add', resourcePayload);
   }
 
+  if ((resourceForm?.dataset.osmId || resourceForm?.dataset.cityQuestId) && activeQuestRoute) {
+    activeQuestRoute.updated = true;
+    renderQuestMissionPanel();
+  }
+
   form.reset();
   editingResourceId = null;
   clearPendingLocation();
   resourcePreview.dataset.photo = '';
+  photoLocationTip?.classList.remove('needs-location');
   delete resourceForm.dataset.osmId;
   delete resourceForm.dataset.osmType;
   delete resourceForm.dataset.osmSource;
+  delete resourceForm.dataset.cityQuestId;
+  delete resourceForm.dataset.cityQuestSource;
+  delete resourceForm.dataset.grtapAttendance;
+  delete resourceForm.dataset.grtapProofLocalId;
   resourcePreview.innerHTML = '';
   resourcePreview.classList.add('hidden');
   const submitButton = resourceForm?.querySelector('button[type="submit"]');
@@ -3105,6 +3914,8 @@ function startResourceEdit(resourceId) {
     resourceForm.dataset.osmId = resource.osmId || '';
     resourceForm.dataset.osmType = resource.osmType || '';
     resourceForm.dataset.osmSource = resource.source || '';
+    resourceForm.dataset.cityQuestId = resource.cityQuestId || '';
+    resourceForm.dataset.cityQuestSource = resource.cityQuestSource || '';
 
     const submitButton = resourceForm.querySelector('button[type="submit"]');
     if (submitButton) submitButton.textContent = 'Update pin';

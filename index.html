@@ -64,6 +64,14 @@
 </div>
 <div aria-label="Find something to do" class="intent-rows compact-intent-rows" id="intentRows"></div>
 <div aria-label="Travel mode" class="travel-mode-rows" id="travelModeRows"></div>
+<div class="quest-strip">
+<div>
+<strong>Find a quest</strong>
+<p class="help compact-help" id="osmQuestStatus">Pick a type and travel method, then pull nearby places to scout.</p>
+</div>
+<button class="button small" id="loadOsmBusinessesButton" type="button">Find quests</button>
+</div>
+<div aria-live="polite" class="quest-list" id="osmQuestList"></div>
 <div aria-live="polite" class="travel-cost-strip" id="travelCostStrip"></div>
 <div class="home-base-panel" id="homeBasePanel">
   <div class="home-base-copy">
@@ -108,6 +116,7 @@
 <div class="map-preview-shell is-collapsed" id="mapPreviewSection">
 <div class="summary-strip" id="resourceSummary"></div>
 <div aria-label="Resource map" class="map-canvas map-canvas-preview" id="mapCanvas"></div>
+<div aria-live="polite" class="quest-mission-panel hidden" id="questMissionPanel"></div>
 </div>
 <div class="map-toolbar compact-map-toolbar">
 <details>
@@ -118,6 +127,7 @@
 </select>
 <select id="resourceFilter">
 <option value="all">All resource types</option>
+<option value="poi">Points of interest</option>
 <option value="water">Water</option>
 <option value="restroom">Restroom</option>
 <option value="outlet">Outlet</option>
@@ -146,14 +156,6 @@
 </section>
 <div aria-live="polite" class="neighborhood-explore neighborhood-explore-compact" id="neighborhoodExploreView"></div>
 <p class="help compact-help">Attach a point of interest by name or address, use current location, or let EXIF GPS fill it from a photo. Groundwork keeps place labels human, not lat / long.</p>
-<div class="quest-strip">
-<div>
-<strong>Foggy business quests</strong>
-<p class="help compact-help" id="osmQuestStatus">Pull nearby OpenStreetMap businesses, then scout one to clear the fog.</p>
-</div>
-<button class="button small" id="loadOsmBusinessesButton" type="button">Find quests</button>
-</div>
-<div aria-live="polite" class="quest-list" id="osmQuestList"></div>
 <div aria-live="polite" class="card-list compact-resource-list" id="resourceList"></div>
 
 
@@ -176,9 +178,17 @@
 <form class="stack" id="resourceForm" novalidate="">
 <label class="photo-first">
               Add photo first
+              <span class="label-hint">On iPhone Safari, photos may not include GPS. You can attach your current location right after the camera closes.</span>
               <input accept="image/*" capture="environment" name="photo" type="file"/>
 </label>
 <div class="preview hidden" id="resourcePreview"></div>
+<div class="photo-location-tip" id="photoLocationTip">
+<div>
+<strong>Attach where you are now</strong>
+<p>Best after taking a photo on iOS, where Safari can remove photo GPS.</p>
+</div>
+<button class="button small primary" id="usePhotoLocationButton" type="button">Use current location</button>
+</div>
 <label>
               Resource type
               <select name="resource" required="">
@@ -260,9 +270,10 @@
               <input id="locationQueryInput" maxlength="160" name="locationQuery" placeholder="Homeless Alliance WestTown, Midtown Library, 1724 NW 4th St" type="text"/>
 </label>
 <div class="inline-actions wrap">
+<button class="button small primary" id="useLocationButton" type="button">Use current location</button>
 <button class="button small" id="lookupLocationButton" type="button">Attach place</button>
+<button class="button small" id="useTypedLocationLabelButton" type="button">Use typed name</button>
 <button class="button small" id="pickMapLocationButton" type="button">Pick from map</button>
-<button class="button small" id="useLocationButton" type="button">Use current location</button>
 <button class="button small" id="clearLocationButton" type="button">Clear</button>
 </div>
 <div aria-live="polite" class="callout hidden" id="selectedLocationCard"></div>
@@ -271,7 +282,7 @@
 <input name="placeName" type="hidden"/>
 <input name="address" type="hidden"/>
 <button class="button primary" type="submit">Post pin</button>
-<p class="help">Public map posts go to the open relay and may be mirrored publicly later. Group posts go only to that group's private inbox. Photos can fill GPS when available.</p>
+<p class="help">Public map posts go to the open relay and may be mirrored publicly later. Group posts go only to that group's private inbox. Photos can fill GPS when available, but iOS Safari may strip it.</p>
 <p class="help">After posting, pins created on this device can be edited or removed from their card.</p>
 </form>
 </aside>

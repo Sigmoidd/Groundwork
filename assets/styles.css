@@ -179,6 +179,12 @@ label {
   font-size: 0.96rem;
 }
 
+.label-hint {
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
 input, select, textarea {
   width: 100%;
   border-radius: 14px;
@@ -721,6 +727,65 @@ textarea { resize: vertical; }
   font-size: 0.9rem;
 }
 
+.quest-mission-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  margin: -2px 0 12px;
+  border: 1px solid rgba(213, 177, 74, 0.26);
+  border-radius: 16px;
+  background: rgba(213, 177, 74, 0.07);
+}
+
+.quest-mission-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.quest-mission-head h3,
+.quest-mission-head p {
+  margin: 0;
+}
+
+.quest-mission-head p:not(.eyebrow) {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.quest-route-chip {
+  display: inline-flex;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 6px 10px;
+  border: 1px solid rgba(213, 177, 74, 0.3);
+  color: var(--gold);
+  background: rgba(213, 177, 74, 0.1);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.quest-route-meta,
+.quest-route-notes,
+.quest-mission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quest-route-meta span,
+.quest-route-notes span {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.03);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .admission-desk { margin-top: 18px; }
 .admission-board {
   display: grid;
@@ -807,12 +872,52 @@ textarea { resize: vertical; }
   max-height: 260px;
 }
 
+.preview {
+  overflow: hidden;
+  background: rgba(255,255,255,0.02);
+}
+
+.preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: cover;
+}
+
 .photo-first input {
   margin-top: 8px;
   padding: 16px;
   border: 1px dashed rgba(126, 211, 134, 0.45);
   border-radius: 14px;
   background: rgba(126, 211, 134, 0.08);
+}
+
+.photo-location-tip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(100, 168, 220, 0.24);
+  border-radius: 14px;
+  background: rgba(100, 168, 220, 0.08);
+}
+
+.photo-location-tip.needs-location {
+  border-color: rgba(213, 177, 74, 0.42);
+  background: rgba(213, 177, 74, 0.1);
+}
+
+.photo-location-tip strong {
+  color: var(--text);
+}
+
+.photo-location-tip p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
 }
 
 .identity-card, .callout, .code-block {
@@ -1051,6 +1156,26 @@ textarea { resize: vertical; }
   .pin-photo-grid,
   .neighborhood-explore-grid {
     grid-template-columns: 1fr;
+  }
+  .inline-actions {
+    align-items: stretch;
+  }
+  .inline-actions .button,
+  .photo-location-tip .button {
+    width: 100%;
+  }
+  .photo-location-tip {
+    grid-template-columns: 1fr;
+  }
+  .quest-mission-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .quest-mission-actions .button {
+    width: 100%;
+  }
+  .preview img {
+    max-height: 180px;
   }
 }
 

@@ -1,5 +1,6 @@
 build/
 data/raw/
 data/gtfs/
+data/scratch/
 source_check/
 *.log

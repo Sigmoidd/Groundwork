@@ -1637,7 +1637,7 @@ function renderOsmBusinessQuests() {
 
 function renderOsmQuestCard(item) {
   const eyebrow = item.questSource === 'okc_city_nature' ? 'CITY NATURE QUEST' : 'FOGGY QUEST';
-  const buttonLabel = item.questSource === 'okc_city_nature' ? 'Verify stop' : 'Scout spot';
+  const buttonLabel = 'Start route';
   return `
     <article class="quest-card" data-osm-quest-id="${escapeAttribute(item.id)}">
       <div>
@@ -1804,10 +1804,11 @@ async function handleOsmQuestClick(event) {
   const quest = getVisibleOsmBusinessQuests().find(item => item.id === button.dataset.osmQuestId)
     || osmBusinessQuests.find(item => item.id === button.dataset.osmQuestId);
   if (!quest) return;
-  await startOsmBusinessQuest(quest);
+  const directionsWindow = window.open('about:blank', '_blank');
+  await startOsmBusinessQuest(quest, { directionsWindow });
 }
 
-async function startOsmBusinessQuest(quest) {
+async function startOsmBusinessQuest(quest, options = {}) {
   if (!resourceForm) return;
   window.location.hash = 'map';
   mapPreviewOpen = true;
@@ -1836,8 +1837,9 @@ async function startOsmBusinessQuest(quest) {
   resourceForm.dataset.cityQuestId = isCityNatureQuest ? quest.resourceId : '';
   resourceForm.dataset.cityQuestSource = isCityNatureQuest ? 'okc_public_data' : '';
   const hasRouteOrigin = await routeToQuest(quest);
+  await startQuestNavigation(options.directionsWindow || null);
   mapPreviewSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  toastMessage(hasRouteOrigin ? 'Quest started. Route preview added on the map.' : 'Quest started. Set browser location or home base to route from where you are.');
+  toastMessage(hasRouteOrigin ? 'Route started. Observe the stop, then log what you find.' : 'Route started with destination only. Set browser location or home base for a full Groundwork route.');
 }
 
 async function routeToQuest(quest) {
@@ -1851,6 +1853,9 @@ async function routeToQuest(quest) {
     origin: getReferencePoint(),
     route: null,
     arrived: false,
+    routeStarted: false,
+    startedAt: null,
+    directionsUrl: '',
     remindedToUpdate: false,
     homeReminderArmed: false,
     proof: null,
@@ -2113,13 +2118,16 @@ function renderQuestMissionPanel() {
   const distance = origin ? distanceMiles(origin, destination) : null;
   const proofReady = Boolean(activeQuestRoute.proof);
   const arrived = Boolean(activeQuestRoute.arrived);
+  const routeStarted = Boolean(activeQuestRoute.routeStarted);
   const routeResourceCount = route.resources?.length || 0;
   const routeRadius = route.state?.resource_radius_m ? Math.round(route.state.resource_radius_m / 16.09344) / 100 : null;
   const status = proofReady
     ? 'GRTAP attendance proof ready'
     : arrived
-      ? 'Arrived. Generate proof before updating.'
-      : 'Route started. Stay in Groundwork.';
+      ? 'Arrived. Log what you see before leaving.'
+      : routeStarted
+        ? 'Route is live. Observe the stop, then log it.'
+        : 'Route preview ready. Start directions when you are ready.';
 
   questMissionPanel.innerHTML = `
     <div class="quest-mission-head">
@@ -2138,9 +2146,10 @@ function renderQuestMissionPanel() {
     </div>
     ${route.notes?.length ? `<div class="quest-route-notes">${route.notes.map(note => `<span>${escapeHtml(note)}</span>`).join('')}</div>` : ''}
     <div class="quest-mission-actions">
+      <button class="button small primary" type="button" data-quest-mission-action="start-route">${routeStarted ? 'Open directions' : 'Start route'}</button>
       <button class="button small" type="button" data-quest-mission-action="check-arrival">Check arrival</button>
-      <button class="button small primary" type="button" data-quest-mission-action="grtap-proof">${proofReady ? 'Proof ready' : 'Use GRTAP proof'}</button>
-      <button class="button small" type="button" data-quest-mission-action="update-pin">Update pin before leaving</button>
+      <button class="button small" type="button" data-quest-mission-action="grtap-proof">${proofReady ? 'Proof ready' : 'Use GRTAP proof'}</button>
+      <button class="button small" type="button" data-quest-mission-action="update-pin">Log observation</button>
       <button class="button small" type="button" data-quest-mission-action="home-reminder">Remind at home base</button>
     </div>
   `;
@@ -2151,7 +2160,10 @@ async function handleQuestMissionClick(event) {
   const button = event.target.closest('[data-quest-mission-action]');
   if (!button || !activeQuestRoute) return;
   const action = button.dataset.questMissionAction;
-  if (action === 'check-arrival') {
+  if (action === 'start-route') {
+    const directionsWindow = window.open('about:blank', '_blank');
+    await startQuestNavigation(directionsWindow);
+  } else if (action === 'check-arrival') {
     await checkQuestArrivalNow();
   } else if (action === 'grtap-proof') {
     await generateQuestAttendanceProof();
@@ -2160,6 +2172,114 @@ async function handleQuestMissionClick(event) {
   } else if (action === 'home-reminder') {
     armHomeBaseReminder();
   }
+}
+
+async function startQuestNavigation(directionsWindow = null) {
+  if (!activeQuestRoute) return false;
+  await ensureQuestRouteOrigin();
+  activeQuestRoute.route = buildGroundworkQuestRoute(activeQuestRoute.origin, activeQuestRoute.destination);
+  activeQuestRoute.routeStarted = true;
+  activeQuestRoute.startedAt = activeQuestRoute.startedAt || new Date().toISOString();
+  activeQuestRoute.directionsUrl = buildQuestDirectionsUrl(activeQuestRoute);
+  beginQuestArrivalWatch();
+  renderActiveQuestRoute(true);
+  renderQuestMissionPanel();
+
+  if (directionsWindow && !directionsWindow.closed) {
+    directionsWindow.location.href = activeQuestRoute.directionsUrl;
+  } else {
+    const opened = window.open(activeQuestRoute.directionsUrl, '_blank', 'noopener');
+    if (!opened) {
+      toastMessage('Directions are ready. Use Open directions from the route panel if your browser blocked the new tab.');
+      return false;
+    }
+  }
+
+  toastMessage('Directions opened. Groundwork is ready for the observation log.');
+  return true;
+}
+
+async function ensureQuestRouteOrigin() {
+  if (!activeQuestRoute) return null;
+  if (activeQuestRoute.origin && Number.isFinite(activeQuestRoute.origin.lat) && Number.isFinite(activeQuestRoute.origin.lng)) {
+    return activeQuestRoute.origin;
+  }
+
+  const reference = getReferencePoint();
+  if (reference) {
+    activeQuestRoute.origin = reference;
+    return reference;
+  }
+
+  if (!navigator.geolocation) return null;
+  try {
+    const position = await getBrowserPosition();
+    const origin = {
+      lat: roundCoord(position.coords.latitude),
+      lng: roundCoord(position.coords.longitude),
+      label: 'Current location',
+    };
+    activeQuestRoute.origin = origin;
+    currentBrowseLocation = origin;
+    renderHomeBasePanel();
+    renderTravelCostStrip();
+    return origin;
+  } catch (error) {
+    console.warn(error);
+    return null;
+  }
+}
+
+function buildQuestDirectionsUrl(routeState) {
+  const route = routeState.route || buildGroundworkQuestRoute(routeState.origin, routeState.destination);
+  const destination = routeState.destination;
+  const params = new URLSearchParams({
+    api: '1',
+    destination: `${destination.lat},${destination.lng}`,
+    travelmode: getExternalDirectionsTravelMode(),
+  });
+
+  if (routeState.origin && Number.isFinite(routeState.origin.lat) && Number.isFinite(routeState.origin.lng)) {
+    params.set('origin', `${routeState.origin.lat},${routeState.origin.lng}`);
+  }
+
+  const waypoints = (route.waypoints || [])
+    .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+    .slice(0, activeTravelMode === 'car' ? 1 : 3)
+    .map(point => `${point.lat},${point.lng}`);
+  if (waypoints.length) params.set('waypoints', waypoints.join('|'));
+
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+function getExternalDirectionsTravelMode() {
+  if (activeTravelMode === 'car') return 'driving';
+  if (activeTravelMode === 'scooter') return 'bicycling';
+  return 'walking';
+}
+
+function buildActiveQuestRouteLogPayload() {
+  if (!activeQuestRoute?.routeStarted) return null;
+  const route = activeQuestRoute.route || buildGroundworkQuestRoute(activeQuestRoute.origin, activeQuestRoute.destination);
+  return {
+    standard: 'groundwork-route-v0',
+    startedAt: activeQuestRoute.startedAt,
+    loggedAt: new Date().toISOString(),
+    mode: route.state?.mode || getExternalDirectionsTravelMode(),
+    destination: activeQuestRoute.destination,
+    resourceRadiusM: route.state?.resource_radius_m || null,
+    corridorRadiusM: route.state?.corridor_radius_m || null,
+    waypointCount: route.waypoints?.length || 0,
+    usefulStopCount: route.resources?.length || 0,
+    usefulStops: (route.resources || []).slice(0, 12).map(resource => ({
+      id: resource.id,
+      resource: resource.resource,
+      lat: resource.lat,
+      lng: resource.lng,
+      distanceFromDestination: resource.distanceFromDestination,
+      corridorDistance: resource.corridorDistance,
+    })),
+  };
 }
 
 async function checkQuestArrivalNow() {
@@ -2269,18 +2389,16 @@ async function digestText(value) {
 
 function prepareQuestPinUpdate() {
   if (!activeQuestRoute || !resourceForm) return;
-  if (!activeQuestRoute.proof) {
-    toastMessage('Use GRTAP proof before updating this quest pin.');
-    return;
-  }
   activeQuestRoute.updated = true;
-  resourceForm.dataset.grtapAttendance = 'credit-presented';
+  if (activeQuestRoute.proof) {
+    resourceForm.dataset.grtapAttendance = 'credit-presented';
+  }
   resourceForm.note.value = resourceForm.note.value && !/^Scout\s/.test(resourceForm.note.value)
     ? resourceForm.note.value
-    : `Verified ${activeQuestRoute.destination.label}`;
+    : `Observed ${activeQuestRoute.destination.label}: current conditions logged from the field.`;
   resourceForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
   renderQuestMissionPanel();
-  toastMessage('Pin update unlocked. Add current conditions before leaving.');
+  toastMessage(activeQuestRoute.proof ? 'Observation log ready with proof attached.' : 'Observation log ready. Add a photo and current conditions before leaving.');
 }
 
 function armHomeBaseReminder() {
@@ -3695,6 +3813,7 @@ async function handleResourceSubmit(event) {
     cityQuestId: resourceForm?.dataset.cityQuestId || '',
     cityQuestSource: resourceForm?.dataset.cityQuestSource || '',
     questStatus: resourceForm?.dataset.osmId || resourceForm?.dataset.cityQuestId ? 'scouted' : '',
+    questRoute: buildActiveQuestRouteLogPayload(),
     attendanceProof: resourceForm?.dataset.grtapAttendance ? 'grtap-credit-presented' : '',
     accessibility: {
       adaStatus: String(fd.get('adaStatus') || 'unknown'),

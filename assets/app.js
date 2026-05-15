@@ -1532,23 +1532,29 @@ function renderResources() {
   decorateResourceCards(visibleResources);
 }
 
-function getVisibleOsmBusinessQuests() {
+function getVisibleOsmBusinessQuests(options = {}) {
+  const respectIntent = options.respectIntent !== false;
+  const allowFallback = options.allowFallback !== false;
   const sectorValue = sectorFilter?.value || 'all';
   const typeValue = resourceFilter?.value || 'all';
   const osmQuests = osmBusinessQuests
     .filter(item => sectorValue === 'all' || item.sector === sectorValue)
     .filter(item => typeValue === 'all' || typeValue === 'poi' || typeValue === 'business')
-    .filter(item => questMatchesActiveIntent(item))
+    .filter(item => !respectIntent || questMatchesActiveIntent(item))
     .filter(item => !isOsmQuestCleared(item))
     .map(item => ({ ...item, questSource: item.questSource || 'openstreetmap' }));
 
   const cityQuests = getCityNatureQuests()
     .filter(item => sectorValue === 'all' || item.sector === sectorValue)
     .filter(item => typeValue === 'all' || typeValue === 'poi' || resourceMatchesFilter(item, typeValue))
-    .filter(item => questMatchesActiveIntent(item))
+    .filter(item => !respectIntent || questMatchesActiveIntent(item))
     .filter(item => !isOsmQuestCleared(item));
 
-  return [...cityQuests, ...osmQuests].slice(0, 60);
+  const quests = [...cityQuests, ...osmQuests].slice(0, 60);
+  if (!quests.length && respectIntent && allowFallback && activeIntent !== 'all') {
+    return getVisibleOsmBusinessQuests({ respectIntent: false });
+  }
+  return quests;
 }
 
 function questMatchesActiveIntent(item) {
@@ -1613,6 +1619,7 @@ function getNatureQuestPriority(quest) {
 function renderOsmBusinessQuests() {
   if (!osmQuestList || !osmQuestStatus) return;
   const quests = getVisibleOsmBusinessQuests();
+  const exactQuests = getVisibleOsmBusinessQuests({ respectIntent: true, allowFallback: false });
   const focused = getFocusedSector();
 
   if (osmBusinessLoading) {
@@ -1630,7 +1637,9 @@ function renderOsmBusinessQuests() {
   }
 
   osmQuestStatus.textContent = quests.length
-    ? `${quests.length} ${getActiveIntentTitle().toLowerCase()} quest${quests.length === 1 ? '' : 's'} ready to scout.`
+    ? exactQuests.length
+      ? `${quests.length} ${getActiveIntentTitle().toLowerCase()} quest${quests.length === 1 ? '' : 's'} ready to scout.`
+      : `No exact ${getActiveIntentTitle().toLowerCase()} quests here, so showing nearby quests you can still scout.`
     : `No ${getActiveIntentTitle().toLowerCase()} quests in this view. Try another type, neighborhood, or Points of interest.`;
   osmQuestList.innerHTML = quests.map(renderOsmQuestCard).join('');
 }
@@ -1789,7 +1798,7 @@ function isOsmQuestCleared(quest) {
     });
   }
 
-  return resources.some(resource => {
+  return userVerified.some(resource => {
     if (resource.osmId && resource.osmId === quest.osmId) return true;
     const resourceName = normalizePlaceName(resource.placeName || resource.note);
     if (questName && resourceName && questName === resourceName) return true;

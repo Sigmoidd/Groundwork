@@ -786,6 +786,39 @@ textarea { resize: vertical; }
   font-size: 0.84rem;
 }
 
+.quest-route-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.quest-route-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+}
+
+.quest-route-step span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.quest-route-step strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.quest-route-step.is-active {
+  border-color: rgba(117, 196, 123, 0.45);
+  background: rgba(117, 196, 123, 0.1);
+}
+
 .admission-desk { margin-top: 18px; }
 .admission-board {
   display: grid;

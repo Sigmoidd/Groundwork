@@ -1804,8 +1804,7 @@ async function handleOsmQuestClick(event) {
   const quest = getVisibleOsmBusinessQuests().find(item => item.id === button.dataset.osmQuestId)
     || osmBusinessQuests.find(item => item.id === button.dataset.osmQuestId);
   if (!quest) return;
-  const directionsWindow = window.open('about:blank', '_blank');
-  await startOsmBusinessQuest(quest, { directionsWindow });
+  await startOsmBusinessQuest(quest);
 }
 
 async function startOsmBusinessQuest(quest, options = {}) {
@@ -1837,9 +1836,9 @@ async function startOsmBusinessQuest(quest, options = {}) {
   resourceForm.dataset.cityQuestId = isCityNatureQuest ? quest.resourceId : '';
   resourceForm.dataset.cityQuestSource = isCityNatureQuest ? 'okc_public_data' : '';
   const hasRouteOrigin = await routeToQuest(quest);
-  await startQuestNavigation(options.directionsWindow || null);
+  await startQuestNavigation();
   mapPreviewSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  toastMessage(hasRouteOrigin ? 'Route started. Observe the stop, then log what you find.' : 'Route started with destination only. Set browser location or home base for a full Groundwork route.');
+  toastMessage(hasRouteOrigin ? 'In-app route started. Observe the stop, then log what you find.' : 'Quest selected. Set browser location or home base for a full in-app route.');
 }
 
 async function routeToQuest(quest) {
@@ -1855,7 +1854,6 @@ async function routeToQuest(quest) {
     arrived: false,
     routeStarted: false,
     startedAt: null,
-    directionsUrl: '',
     remindedToUpdate: false,
     homeReminderArmed: false,
     proof: null,
@@ -2121,13 +2119,14 @@ function renderQuestMissionPanel() {
   const routeStarted = Boolean(activeQuestRoute.routeStarted);
   const routeResourceCount = route.resources?.length || 0;
   const routeRadius = route.state?.resource_radius_m ? Math.round(route.state.resource_radius_m / 16.09344) / 100 : null;
+  const routeStep = getActiveQuestRouteStep(activeQuestRoute, route);
   const status = proofReady
     ? 'GRTAP attendance proof ready'
     : arrived
       ? 'Arrived. Log what you see before leaving.'
       : routeStarted
-        ? 'Route is live. Observe the stop, then log it.'
-        : 'Route preview ready. Start directions when you are ready.';
+        ? 'In-app route is live. Follow the map, observe, then log it.'
+        : 'Route preview ready. Start the in-app route when you are ready.';
 
   questMissionPanel.innerHTML = `
     <div class="quest-mission-head">
@@ -2141,12 +2140,16 @@ function renderQuestMissionPanel() {
     <div class="quest-route-meta">
       <span>${distance == null ? 'Origin needed' : `${distance.toFixed(1)} mi direct`}</span>
       <span>${escapeHtml(route.label)}</span>
+      <span>${escapeHtml(routeStep.label)}</span>
       <span>${routeRadius == null ? 'Radius pending' : `${routeResourceCount} useful stops within ${routeRadius} mi`}</span>
       <span>${escapeHtml(activeQuestRoute.homeReminderArmed ? 'Home reminder armed' : 'Home reminder off')}</span>
     </div>
+    <div class="quest-route-steps">
+      ${renderQuestRouteSteps(activeQuestRoute, route)}
+    </div>
     ${route.notes?.length ? `<div class="quest-route-notes">${route.notes.map(note => `<span>${escapeHtml(note)}</span>`).join('')}</div>` : ''}
     <div class="quest-mission-actions">
-      <button class="button small primary" type="button" data-quest-mission-action="start-route">${routeStarted ? 'Open directions' : 'Start route'}</button>
+      <button class="button small primary" type="button" data-quest-mission-action="start-route">${routeStarted ? 'Recenter route' : 'Start in-app route'}</button>
       <button class="button small" type="button" data-quest-mission-action="check-arrival">Check arrival</button>
       <button class="button small" type="button" data-quest-mission-action="grtap-proof">${proofReady ? 'Proof ready' : 'Use GRTAP proof'}</button>
       <button class="button small" type="button" data-quest-mission-action="update-pin">Log observation</button>
@@ -2161,8 +2164,7 @@ async function handleQuestMissionClick(event) {
   if (!button || !activeQuestRoute) return;
   const action = button.dataset.questMissionAction;
   if (action === 'start-route') {
-    const directionsWindow = window.open('about:blank', '_blank');
-    await startQuestNavigation(directionsWindow);
+    await startQuestNavigation();
   } else if (action === 'check-arrival') {
     await checkQuestArrivalNow();
   } else if (action === 'grtap-proof') {
@@ -2174,28 +2176,16 @@ async function handleQuestMissionClick(event) {
   }
 }
 
-async function startQuestNavigation(directionsWindow = null) {
+async function startQuestNavigation() {
   if (!activeQuestRoute) return false;
   await ensureQuestRouteOrigin();
   activeQuestRoute.route = buildGroundworkQuestRoute(activeQuestRoute.origin, activeQuestRoute.destination);
   activeQuestRoute.routeStarted = true;
   activeQuestRoute.startedAt = activeQuestRoute.startedAt || new Date().toISOString();
-  activeQuestRoute.directionsUrl = buildQuestDirectionsUrl(activeQuestRoute);
   beginQuestArrivalWatch();
   renderActiveQuestRoute(true);
   renderQuestMissionPanel();
-
-  if (directionsWindow && !directionsWindow.closed) {
-    directionsWindow.location.href = activeQuestRoute.directionsUrl;
-  } else {
-    const opened = window.open(activeQuestRoute.directionsUrl, '_blank', 'noopener');
-    if (!opened) {
-      toastMessage('Directions are ready. Use Open directions from the route panel if your browser blocked the new tab.');
-      return false;
-    }
-  }
-
-  toastMessage('Directions opened. Groundwork is ready for the observation log.');
+  toastMessage('In-app route is live. Keep Groundwork open to watch arrival and log the observation.');
   return true;
 }
 
@@ -2230,32 +2220,54 @@ async function ensureQuestRouteOrigin() {
   }
 }
 
-function buildQuestDirectionsUrl(routeState) {
-  const route = routeState.route || buildGroundworkQuestRoute(routeState.origin, routeState.destination);
-  const destination = routeState.destination;
-  const params = new URLSearchParams({
-    api: '1',
-    destination: `${destination.lat},${destination.lng}`,
-    travelmode: getExternalDirectionsTravelMode(),
-  });
-
-  if (routeState.origin && Number.isFinite(routeState.origin.lat) && Number.isFinite(routeState.origin.lng)) {
-    params.set('origin', `${routeState.origin.lat},${routeState.origin.lng}`);
-  }
-
-  const waypoints = (route.waypoints || [])
-    .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng))
-    .slice(0, activeTravelMode === 'car' ? 1 : 3)
-    .map(point => `${point.lat},${point.lng}`);
-  if (waypoints.length) params.set('waypoints', waypoints.join('|'));
-
-  return `https://www.google.com/maps/dir/?${params.toString()}`;
+function getQuestRouteStops(routeState, route) {
+  const waypoints = (route?.waypoints || []).map((point, index) => ({
+    ...point,
+    stopType: 'waypoint',
+    stopIndex: index + 1,
+    label: point.note || RESOURCE_LABELS[point.resource] || `Useful stop ${index + 1}`,
+  }));
+  return [
+    ...waypoints,
+    {
+      ...routeState.destination,
+      stopType: 'destination',
+      stopIndex: waypoints.length + 1,
+      label: routeState.destination.label || 'Quest stop',
+    },
+  ];
 }
 
-function getExternalDirectionsTravelMode() {
-  if (activeTravelMode === 'car') return 'driving';
-  if (activeTravelMode === 'scooter') return 'bicycling';
-  return 'walking';
+function getActiveQuestRouteStep(routeState, route) {
+  const origin = currentBrowseLocation || routeState.origin;
+  const stops = getQuestRouteStops(routeState, route);
+  if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lng)) {
+    return { label: 'Set location to begin', stop: stops[0] || null, distance: null };
+  }
+
+  const nextStop = stops.find(stop => distanceMiles(origin, stop) > 0.06) || stops[stops.length - 1];
+  const distance = nextStop ? distanceMiles(origin, nextStop) : null;
+  return {
+    label: nextStop && distance != null
+      ? `Next: ${nextStop.label} (${distance.toFixed(1)} mi)`
+      : 'Route complete',
+    stop: nextStop,
+    distance,
+  };
+}
+
+function renderQuestRouteSteps(routeState, route) {
+  const stops = getQuestRouteStops(routeState, route);
+  if (!stops.length) return '<div class="quest-route-step is-active">Set a route destination.</div>';
+  const activeStep = getActiveQuestRouteStep(routeState, route).stop;
+  return stops.map(stop => {
+    const isActive = activeStep && stop.stopType === activeStep.stopType && stop.stopIndex === activeStep.stopIndex;
+    const icon = stop.stopType === 'destination' ? 'Quest' : 'Stop';
+    return `<div class="quest-route-step${isActive ? ' is-active' : ''}">
+      <span>${escapeHtml(icon)} ${stop.stopIndex}</span>
+      <strong>${escapeHtml(stop.label)}</strong>
+    </div>`;
+  }).join('');
 }
 
 function buildActiveQuestRouteLogPayload() {
@@ -2265,7 +2277,7 @@ function buildActiveQuestRouteLogPayload() {
     standard: 'groundwork-route-v0',
     startedAt: activeQuestRoute.startedAt,
     loggedAt: new Date().toISOString(),
-    mode: route.state?.mode || getExternalDirectionsTravelMode(),
+    mode: route.state?.mode || buildRouteState(activeQuestRoute.origin, activeQuestRoute.destination).mode,
     destination: activeQuestRoute.destination,
     resourceRadiusM: route.state?.resource_radius_m || null,
     corridorRadiusM: route.state?.corridor_radius_m || null,

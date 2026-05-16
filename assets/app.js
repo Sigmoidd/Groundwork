@@ -102,6 +102,13 @@ const ROUTE_RESOURCE_RADIUS_MILES = 0.25;
 const ROUTE_CORRIDOR_RADIUS_MILES = 0.18;
 const POI_RESOURCE_TYPES = new Set(['business', 'garden', 'fishing', 'shade', 'water', 'restroom', 'bike_rack', 'outlet', 'trash_can']);
 const NATURE_RESOURCE_TYPES = new Set(['shade', 'garden', 'fishing', 'water']);
+const QUEST_RESOURCE_FILTERS = new Set(['all', 'poi', 'business']);
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.osm.ch/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
+const OSM_QUEST_QUERY_LIMIT = 75;
 
 
 const NEIGHBORHOOD_MEDIA = {
@@ -1661,6 +1668,7 @@ function renderOsmQuestCard(item) {
 
 async function loadOsmBusinessQuests() {
   if (osmBusinessLoading) return;
+  ensureQuestDiscoveryMode();
   const bounds = getOsmBusinessBounds();
   const cacheKey = bounds.map(value => value.toFixed(4)).join(',');
   if (cacheKey === osmBusinessCacheKey && osmBusinessQuests.length) {
@@ -1674,23 +1682,39 @@ async function loadOsmBusinessQuests() {
 
   try {
     const elements = await fetchOsmBusinesses(bounds);
-    osmBusinessQuests = dedupeBy(elements
+    const nextQuests = dedupeBy(elements
       .map(normalizeOsmBusinessElement)
       .filter(Boolean)
       .filter(item => !isOsmQuestCleared(item)), item => item.id)
       .slice(0, 90);
+    osmBusinessQuests = nextQuests.length ? nextQuests : osmBusinessQuests;
     osmBusinessCacheKey = cacheKey;
     renderOsmBusinessQuests();
     renderMap();
-    toastMessage(osmBusinessQuests.length ? `Found ${osmBusinessQuests.length} foggy business quests.` : 'No new OSM businesses found here.');
+    const visibleQuests = getVisibleOsmBusinessQuests();
+    toastMessage(nextQuests.length
+      ? `Found ${nextQuests.length} foggy OSM quests.`
+      : visibleQuests.length
+        ? 'No new OSM places returned; keeping nearby scoutable quests visible.'
+        : 'No OSM places returned for this view.');
   } catch (error) {
     console.warn(error);
-    osmQuestStatus.textContent = 'Could not reach OpenStreetMap right now. Try again in a minute.';
-    toastMessage('OSM quest lookup failed.');
+    renderOsmBusinessQuests();
+    osmQuestStatus.textContent = getVisibleOsmBusinessQuests().length
+      ? 'OpenStreetMap is slow right now, so showing loaded city quests.'
+      : 'Could not reach OpenStreetMap right now. Try again in a minute.';
+    toastMessage('OSM quest lookup failed; city quests are still available.');
   } finally {
     osmBusinessLoading = false;
     renderOsmBusinessQuests();
   }
+}
+
+function ensureQuestDiscoveryMode() {
+  if (!resourceFilter || QUEST_RESOURCE_FILTERS.has(resourceFilter.value || 'all')) return;
+  resourceFilter.value = 'poi';
+  renderResources();
+  renderMap();
 }
 
 function getOsmBusinessBounds() {
@@ -1719,39 +1743,57 @@ function getOsmBusinessBounds() {
 async function fetchOsmBusinesses(bounds) {
   const [south, west, north, east] = bounds.map(Number);
   const bbox = `${south},${west},${north},${east}`;
-  const query = `
-    [out:json][timeout:20];
-    (
-      node["name"]["shop"](${bbox});
-      way["name"]["shop"](${bbox});
-      relation["name"]["shop"](${bbox});
-      node["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace|community_centre|arts_centre|social_facility|place_of_worship"](${bbox});
-      way["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace|community_centre|arts_centre|social_facility|place_of_worship"](${bbox});
-      relation["name"]["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace|community_centre|arts_centre|social_facility|place_of_worship"](${bbox});
-      node["name"]["tourism"~"museum|gallery|hotel|attraction"](${bbox});
-      way["name"]["tourism"~"museum|gallery|hotel|attraction"](${bbox});
-      relation["name"]["tourism"~"museum|gallery|hotel|attraction"](${bbox});
-      node["name"]["leisure"~"park|garden|nature_reserve"](${bbox});
-      way["name"]["leisure"~"park|garden|nature_reserve"](${bbox});
-      relation["name"]["leisure"~"park|garden|nature_reserve"](${bbox});
-      node["name"]["craft"](${bbox});
-      way["name"]["craft"](${bbox});
-      relation["name"]["craft"](${bbox});
-      node["name"]["office"](${bbox});
-      way["name"]["office"](${bbox});
-      relation["name"]["office"](${bbox});
-    );
-    out center 90;
-  `;
+  const queries = buildOsmQuestQueries(bbox);
+  const results = [];
+  const errors = [];
 
-  const response = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    headers: { 'content-type': 'text/plain;charset=UTF-8' },
-    body: query,
-  });
-  if (!response.ok) throw new Error(`Overpass failed: ${response.status}`);
-  const data = await response.json();
-  return Array.isArray(data.elements) ? data.elements : [];
+  for (const query of queries) {
+    try {
+      results.push(...await fetchOverpassElements(query));
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  if (!results.length && errors.length === queries.length) {
+    throw errors[0] || new Error('Overpass returned no quest data.');
+  }
+
+  return results;
+}
+
+function buildOsmQuestQueries(bbox) {
+  return [
+    '["shop"]',
+    '["amenity"~"restaurant|cafe|bar|pub|fast_food|pharmacy|bank|clinic|library|theatre|cinema|marketplace|community_centre|arts_centre|social_facility|place_of_worship"]',
+    '["tourism"~"museum|gallery|hotel|attraction"]',
+    '["leisure"~"park|garden|nature_reserve"]',
+    '["craft"]',
+    '["office"]',
+  ].map(selector => `[out:json][timeout:20];nwr["name"]${selector}(${bbox});out center ${OSM_QUEST_QUERY_LIMIT};`);
+}
+
+async function fetchOverpassElements(query) {
+  let lastError = null;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const url = new URL(endpoint);
+      url.searchParams.set('data', query);
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+      });
+      if (!response.ok) {
+        lastError = new Error(`Overpass failed: ${response.status}`);
+        continue;
+      }
+      const data = await response.json();
+      return Array.isArray(data.elements) ? data.elements : [];
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('Overpass lookup failed.');
 }
 
 function normalizeOsmBusinessElement(element) {
